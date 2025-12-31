@@ -8,16 +8,54 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build layer
-        run: ./scripts/build_layer.sh
+        run: make build
 
-      - name: Smoke test
-        run: ./scripts/smoke_test.sh
+      - name: Run ShellSpec (arm64 container)
+        id: shellspec
+        continue-on-error: true
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/workspace" -w /workspace \
+            public.ecr.aws/amazonlinux/amazonlinux:2023 \
+            /bin/sh -lc "dnf -y install curl-minimal python3 make && SHELLSPEC_ARGS='--output junit' make test"
+
+      - name: Upload test report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shellspec-junit
+          path: report/results_junit.xml
+          if-no-files-found: warn
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: shellspec
+          path: report/results_junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Fail if tests failed
+        if: steps.shellspec.outcome != 'success'
+        run: exit 1
