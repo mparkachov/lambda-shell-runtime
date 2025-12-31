@@ -10,7 +10,8 @@ if [ ! -x "$root/layer/opt/bootstrap" ] || \
 fi
 
 "$root/layer/opt/bin/aws" --version
-"$root/layer/opt/bin/jq" --version
+LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  "$root/layer/opt/bin/jq" --version
 
 event_file=$(mktemp)
 response_file=$(mktemp)
@@ -100,6 +101,7 @@ fi
 port=$(cat "$port_file")
 
 PATH="$root/layer/opt/bin:$PATH" \
+LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 AWS_LAMBDA_RUNTIME_API="127.0.0.1:${port}" \
 LAMBDA_TASK_ROOT="$root/examples/hello" \
 _HANDLER="handler" \
@@ -119,4 +121,5 @@ if [ ! -s "$response_file" ]; then
   exit 1
 fi
 
-"$root/layer/opt/bin/jq" -e '.message == "hello"' "$response_file" >/dev/null
+LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  "$root/layer/opt/bin/jq" -e '.message == "hello"' "$response_file" >/dev/null

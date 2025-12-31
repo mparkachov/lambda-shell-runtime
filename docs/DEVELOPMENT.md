@@ -7,6 +7,7 @@
 ```
 
 This builds an Amazon Linux 2023 (arm64) container, installs AWS CLI v2 and jq, and stages the layer contents under `layer/opt`.
+The Docker build uses `curl-minimal` to keep dependencies small. If you need full curl features, switch the Dockerfile to `curl`.
 
 ## Package the layer
 

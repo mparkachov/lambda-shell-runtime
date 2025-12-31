@@ -24,6 +24,8 @@
 ./scripts/build_layer.sh
 ```
 
+The build image uses `curl-minimal` to keep dependencies small. If the AWS CLI download ever needs full curl features, switch the Dockerfile to `curl`.
+
 ## Package the layer
 
 ```sh
@@ -45,7 +47,7 @@ The output is `dist/lambda-shell-runtime-arm64.zip` with a top-level `opt/` dire
 - Architecture: `arm64`
 - Handler: executable name of your handler file
 
-See `docs/USAGE.md` for full details and `examples/hello/README.md` for a deployable example.
+See [docs/USAGE.md](docs/USAGE.md) for full details, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
 
 ## Publish to SAR
 

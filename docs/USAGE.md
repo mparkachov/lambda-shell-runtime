@@ -74,6 +74,8 @@ Only AWS-defined environment variables are used:
 - `_HANDLER`: handler executable name
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
 
+The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.
+
 ## Example handler
 
 ```sh

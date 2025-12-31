@@ -43,9 +43,6 @@ if [ ! -x "$handler_path" ]; then
   exit 1
 fi
 
-PATH="/opt/bin:$PATH"
-export PATH
-
 while :; do
   headers=$(mktemp)
   body=$(mktemp)
