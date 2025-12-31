@@ -37,7 +37,7 @@ jobs:
           docker run --rm --platform linux/arm64 \
             -v "$PWD:/workspace" -w /workspace \
             public.ecr.aws/amazonlinux/amazonlinux:2023 \
-            /bin/sh -lc "dnf -y install curl-minimal python3 make && SHELLSPEC_ARGS='--output junit' make test"
+            /bin/sh -lc "dnf -y install curl-minimal python3 make && SHELLSPEC_ARGS='--output junit --shell /bin/sh' make test"
 
       - name: Upload test report artifact
         if: always()
