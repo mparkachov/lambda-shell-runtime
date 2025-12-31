@@ -1,0 +1,6 @@
+.DS_Store
+/dist/
+/layer/opt/
+.aws-sam/
+packaged.yaml
+samconfig.toml

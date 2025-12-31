@@ -1,0 +1,85 @@
+#!/bin/sh
+set -u
+
+log() {
+  printf '%s\n' "$*" >&2
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+post_init_error() {
+  message=$1
+  error_type=$2
+  payload=$(mktemp)
+  escaped=$(json_escape "$message")
+  printf '{"errorMessage":"%s","errorType":"%s"}' "$escaped" "$error_type" > "$payload"
+  curl -sS -X POST "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/init/error" \
+    --data-binary "@$payload" >/dev/null || true
+  rm -f "$payload"
+}
+
+runtime_api=${AWS_LAMBDA_RUNTIME_API:-}
+if [ -z "$runtime_api" ]; then
+  log "AWS_LAMBDA_RUNTIME_API is not set"
+  exit 1
+fi
+
+task_root=${LAMBDA_TASK_ROOT:-/var/task}
+handler_name=${_HANDLER:-}
+if [ -z "$handler_name" ]; then
+  post_init_error "Missing _HANDLER" "Runtime.InvalidHandler"
+  exit 1
+fi
+
+case "$handler_name" in
+  /*) handler_path="$handler_name" ;;
+  *) handler_path="$task_root/$handler_name" ;;
+esac
+
+if [ ! -x "$handler_path" ]; then
+  post_init_error "Handler not executable: $handler_path" "Runtime.InvalidHandler"
+  exit 1
+fi
+
+PATH="/opt/bin:$PATH"
+export PATH
+
+while :; do
+  headers=$(mktemp)
+  body=$(mktemp)
+
+  if ! curl -sS -D "$headers" -o "$body" \
+    "http://${runtime_api}/2018-06-01/runtime/invocation/next"; then
+    log "Failed to fetch next invocation"
+    rm -f "$headers" "$body"
+    exit 1
+  fi
+
+  request_id=$(awk -F': ' 'tolower($1)=="lambda-runtime-aws-request-id"{print $2}' "$headers" | tr -d '\r')
+  if [ -z "$request_id" ]; then
+    log "Missing Lambda-Runtime-Aws-Request-Id header"
+    rm -f "$headers" "$body"
+    exit 1
+  fi
+
+  response=$(mktemp)
+  if "$handler_path" < "$body" > "$response"; then
+    curl -sS -X POST \
+      "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
+      --data-binary "@$response" >/dev/null || true
+  else
+    handler_exit=$?
+    log "Handler exited with status ${handler_exit}"
+    error_payload=$(mktemp)
+    escaped=$(json_escape "Handler exited with status ${handler_exit}")
+    printf '{"errorMessage":"%s","errorType":"Runtime.HandlerError"}' "$escaped" > "$error_payload"
+    curl -sS -X POST \
+      "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/error" \
+      --data-binary "@$error_payload" >/dev/null || true
+    rm -f "$error_payload"
+  fi
+
+  rm -f "$headers" "$body" "$response"
+done
