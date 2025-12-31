@@ -64,3 +64,50 @@ sam package \
 ```sh
 sam publish --template packaged.yaml
 ```
+
+## GitHub Actions AWS connectivity
+
+The manual workflow `.github/workflows/aws-connectivity.yml` validates GitHub Actions access to AWS. It uses OIDC and requires a role with appropriate permissions.
+
+### One-time AWS setup (admin)
+
+1. Create the GitHub OIDC provider in AWS (if not already present):
+   - Provider URL: `https://token.actions.githubusercontent.com`
+   - Audience: `sts.amazonaws.com`
+2. Create an IAM role for GitHub Actions with:
+   - Trust policy allowing `sts:AssumeRoleWithWebIdentity` from your repo and branch.
+   - For initial setup, attach `AdministratorAccess`. You can reduce permissions later.
+
+Example trust policy (replace account ID, org, repo, and branch):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:ORG/REPO:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+### GitHub repo setup
+
+1. Add a repository secret `AWS_ROLE_ARN` with the IAM role ARN.
+2. Add a repository variable `AWS_REGION` (for example, `us-east-1`).
+
+### Run the workflow
+
+In GitHub, open the Actions tab, select **AWS Connectivity**, and click **Run workflow**. The job runs `aws sts get-caller-identity` and lists a few Lambda layers to confirm connectivity.

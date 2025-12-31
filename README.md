@@ -1,5 +1,8 @@
 # lambda-shell-runtime
 
+![CI](https://github.com/mparkachov/lambda-shell-runtime/actions/workflows/ci.yml/badge.svg)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 `lambda-shell-runtime` is a minimal AWS Lambda custom runtime implemented in POSIX shell for `provided.al2023` (arm64). It is packaged as a Lambda Layer and includes AWS CLI v2 (Linux aarch64) and jq. The primary distribution target is the AWS Serverless Application Repository (SAR), so teams can install the application and receive a layer version.
 
 ## Design goals
