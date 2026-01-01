@@ -17,7 +17,7 @@ require_cmd aws
 require_cmd gh
 
 release_branch=${RELEASE_BRANCH:-main}
-s3_prefix=${S3_PREFIX:-$LSR_S3_PREFIX}
+s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
 wrapper_app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
 template_wrapper="$root/template.yaml"
 template_arm64="$root/template-arm64.yaml"
@@ -81,6 +81,7 @@ if [ "$version_arm64" != "$version_amd64" ]; then
   exit 1
 fi
 version=$version_arm64
+s3_prefix_publish="${s3_prefix_base}/${version}"
 
 sar_app_id() {
   name=$1
@@ -183,7 +184,7 @@ publish_template() {
   sam package \
     --template-file "$template_path" \
     --s3-bucket "$S3_BUCKET" \
-    --s3-prefix "$s3_prefix" \
+    --s3-prefix "$s3_prefix_publish" \
     --output-template-file "$packaged_path"
 
   sam publish --template "$packaged_path"

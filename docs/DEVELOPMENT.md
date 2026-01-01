@@ -83,12 +83,13 @@ It:
 - if missing, commits the templates, tags the repo, and creates a GitHub release with versioned artifacts
 - publishes the SAR applications with `sam package`/`sam publish`
 - updates `template.yaml` with the arm64/amd64 ApplicationIds and publishes the wrapper application
+- uploads SAR artifacts under `S3_PREFIX/<version>`
 
 Local requirements:
 - Docker with buildx/QEMU (for cross-arch)
 - `sam`, `gh`, and `aws` CLIs installed (`gh auth login` or `GH_TOKEN` required)
 - `S3_BUCKET` set in the environment (or via `make release S3_BUCKET=...`)
-- `S3_PREFIX` (optional; defaults to `sar`)
+- `S3_PREFIX` (optional; defaults to `sar`, used as the base prefix for SAR artifacts)
 
 Repo setup required for the workflow:
 - `AWS_ROLE_ARN` secret for OIDC
@@ -112,19 +113,19 @@ If you use `make release` (locally or via the workflow), SAR publishing is handl
 ./scripts/package_layer.sh
 ```
 
-2. Set `S3_BUCKET` to an S3 bucket in your account and package each template:
+2. Set `S3_BUCKET` to an S3 bucket in your account and package each template (use a versioned prefix like `sar/<version>` to group artifacts):
 
 ```sh
 sam package \
   --template-file template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar" \
+  --s3-prefix "sar/<version>" \
   --output-template-file packaged-arm64.yaml
 
 sam package \
   --template-file template-amd64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar" \
+  --s3-prefix "sar/<version>" \
   --output-template-file packaged-amd64.yaml
 ```
 

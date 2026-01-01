@@ -19,7 +19,7 @@ wrapper_app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
 arm64_app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}
 amd64_app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}
 template_path="$root/aws-setup.yaml"
-s3_prefix=${S3_PREFIX:-$LSR_S3_PREFIX}
+s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
 template_wrapper="$root/template.yaml"
 template_arm64="$root/template-arm64.yaml"
 template_amd64="$root/template-amd64.yaml"
@@ -74,7 +74,7 @@ aws cloudformation deploy \
   --parameter-overrides \
     "BucketName=$bucket_name" \
     "CreateBucket=$create_bucket" \
-    "S3Prefix=$s3_prefix" \
+    "S3Prefix=$s3_prefix_base" \
   --no-fail-on-empty-changeset
 
 lifecycle_file=$(mktemp)
@@ -86,7 +86,7 @@ cat >"$lifecycle_file" <<JSON
       "ID": "SarArtifactsLifecycle",
       "Status": "Enabled",
       "Filter": {
-        "Prefix": "${s3_prefix}/"
+        "Prefix": "${s3_prefix_base}/"
       },
       "Transitions": [
         {
@@ -128,6 +128,14 @@ make package-all
 S3_BUCKET=${S3_BUCKET:-$bucket_name}
 export S3_BUCKET
 
+version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$template_arm64")
+if [ -z "$version" ]; then
+  printf '%s\n' "Unable to resolve SemanticVersion from $template_arm64" >&2
+  exit 1
+fi
+
+s3_prefix_publish="${s3_prefix_base}/${version}"
+
 publish_app() {
   arch=$1
   template_path=$2
@@ -139,7 +147,7 @@ publish_app() {
   sam package \
     --template-file "$template_path" \
     --s3-bucket "$S3_BUCKET" \
-    --s3-prefix "$s3_prefix" \
+    --s3-prefix "$s3_prefix_publish" \
     --output-template-file "$packaged_path"
 
   sam publish --template "$packaged_path"
@@ -156,12 +164,6 @@ if [ -z "$arm64_id" ] || [ "$arm64_id" = "None" ] || [ "$arm64_id" = "null" ]; t
 fi
 if [ -z "$amd64_id" ] || [ "$amd64_id" = "None" ] || [ "$amd64_id" = "null" ]; then
   printf '%s\n' "Unable to resolve SAR application ID for $amd64_app_name" >&2
-  exit 1
-fi
-
-version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$template_arm64")
-if [ -z "$version" ]; then
-  printf '%s\n' "Unable to resolve SemanticVersion from $template_arm64" >&2
   exit 1
 fi
 
