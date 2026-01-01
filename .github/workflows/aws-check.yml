@@ -1,4 +1,4 @@
-name: AWS Connectivity
+name: AWS Check
 
 on:
   workflow_dispatch:
@@ -20,8 +20,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Verify identity
-        run: aws sts get-caller-identity
-
-      - name: List Lambda layers (sanity)
-        run: aws lambda list-layers --max-items 5
+      - name: Run AWS checks
+        env:
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+        run: make aws-check

@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal POSIX shell custom runtime layer for provided.al2023 (x86_64).
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: lambda-shell-runtime-amd64
+    Description: Minimal POSIX shell custom runtime layer for provided.al2023 (x86_64) including AWS CLI v2 and jq.
+    Author: Maxim Parkachov
+    HomePageUrl: https://github.com/mparkachov/lambda-shell-runtime
+    SpdxLicenseId: Apache-2.0
+    LicenseUrl: LICENSE
+    ReadmeUrl: SAR_README.md
+    Labels: [lambda, runtime, layer, shell, provided-al2023, x86_64, awscli]
+    SemanticVersion: 2.32.26
+
+Resources:
+  LambdaShellRuntimeLayerAmd64:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: lambda-shell-runtime-amd64
+      Description: Minimal POSIX shell custom runtime for provided.al2023 (x86_64).
+      ContentUri: dist/lambda-shell-runtime-amd64.zip
+      CompatibleRuntimes:
+        - provided.al2023
+      CompatibleArchitectures:
+        - x86_64
+      LicenseInfo: Apache-2.0
+
+Outputs:
+  LayerVersionArn:
+    Description: ARN of the published Lambda layer version (x86_64).
+    Value: !Ref LambdaShellRuntimeLayerAmd64

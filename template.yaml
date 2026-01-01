@@ -6,42 +6,33 @@ Metadata:
   AWS::ServerlessRepo::Application:
     Name: lambda-shell-runtime
     Description: Minimal POSIX shell custom runtime layer for provided.al2023 (arm64, x86_64) including AWS CLI v2 and jq.
-    Author: lambda-shell-runtime maintainers
+    Author: Maxim Parkachov
+    HomePageUrl: https://github.com/mparkachov/lambda-shell-runtime
     SpdxLicenseId: Apache-2.0
     LicenseUrl: LICENSE
-    ReadmeUrl: README.md
-    Labels: [lambda, runtime, layer, shell, provided.al2023, arm64, x86_64]
+    ReadmeUrl: SAR_README.md
+    Labels: [lambda, runtime, layer, shell, provided-al2023, arm64, x86_64, awscli]
     SemanticVersion: 2.32.26
 
 Resources:
-  LambdaShellRuntimeLayerArm64:
-    Type: AWS::Serverless::LayerVersion
+  RuntimeArm64Application:
+    Type: AWS::Serverless::Application
     Properties:
-      LayerName: lambda-shell-runtime-arm64
-      Description: Minimal POSIX shell custom runtime for provided.al2023 (arm64).
-      ContentUri: dist/lambda-shell-runtime-arm64.zip
-      CompatibleRuntimes:
-        - provided.al2023
-      CompatibleArchitectures:
-        - arm64
-      LicenseInfo: Apache-2.0
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:541185764973:applications/lambda-shell-runtime-arm64
+        SemanticVersion: 2.32.26
 
-  LambdaShellRuntimeLayerAmd64:
-    Type: AWS::Serverless::LayerVersion
+  RuntimeAmd64Application:
+    Type: AWS::Serverless::Application
     Properties:
-      LayerName: lambda-shell-runtime-amd64
-      Description: Minimal POSIX shell custom runtime for provided.al2023 (x86_64).
-      ContentUri: dist/lambda-shell-runtime-amd64.zip
-      CompatibleRuntimes:
-        - provided.al2023
-      CompatibleArchitectures:
-        - x86_64
-      LicenseInfo: Apache-2.0
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:541185764973:applications/lambda-shell-runtime-amd64
+        SemanticVersion: 2.32.26
 
 Outputs:
   LayerVersionArnArm64:
     Description: ARN of the published Lambda layer version (arm64).
-    Value: !Ref LambdaShellRuntimeLayerArm64
+    Value: !GetAtt RuntimeArm64Application.Outputs.LayerVersionArn
   LayerVersionArnAmd64:
     Description: ARN of the published Lambda layer version (x86_64).
-    Value: !Ref LambdaShellRuntimeLayerAmd64
+    Value: !GetAtt RuntimeAmd64Application.Outputs.LayerVersionArn

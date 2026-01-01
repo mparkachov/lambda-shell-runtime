@@ -20,23 +20,33 @@ zip -r ../../dist/hello-function.zip handler
 
 ## Install the layer from SAR
 
-Deploy the SAR application in your account. After deployment, read the output that matches your function architecture and export it:
+Deploy the SAR application for your architecture (or the wrapper application) in your account. After deployment, read the relevant output and export it:
+
+```sh
+STACK_NAME=lambda-shell-runtime-arm64
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArn'].OutputValue" \
+  --output text)
+```
+
+For x86_64, use the amd64 application stack:
+
+```sh
+STACK_NAME=lambda-shell-runtime-amd64
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArn'].OutputValue" \
+  --output text)
+```
+
+If you deployed the wrapper application (`lambda-shell-runtime`), use the architecture-specific outputs:
 
 ```sh
 STACK_NAME=lambda-shell-runtime
 LAYER_ARN=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
   --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnArm64'].OutputValue" \
-  --output text)
-```
-
-For x86_64, use `LayerVersionArnAmd64` instead:
-
-```sh
-STACK_NAME=lambda-shell-runtime
-LAYER_ARN=$(aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnAmd64'].OutputValue" \
   --output text)
 ```
 

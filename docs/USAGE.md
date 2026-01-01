@@ -8,10 +8,14 @@ AWS documentation:
 
 ## Install from SAR (recommended)
 
-Deploy the Serverless Application Repository (SAR) application in your account. The deployment creates two Lambda Layer versions (arm64 and x86_64) and returns their ARNs as stack outputs.
+Deploy the Serverless Application Repository (SAR) application that fits your needs:
+
+- `lambda-shell-runtime` (wrapper): exposes both architectures and outputs `LayerVersionArnArm64` and `LayerVersionArnAmd64`
+- `lambda-shell-runtime-arm64` or `lambda-shell-runtime-amd64`: single-architecture apps that output `LayerVersionArn`
+
 The SAR application semantic version tracks the bundled AWS CLI v2 version.
 
-If you deployed with the console, open the CloudFormation stack outputs and copy `LayerVersionArnArm64` or `LayerVersionArnAmd64` depending on your function architecture.
+If you deployed with the console, open the CloudFormation stack outputs and copy the appropriate output key (`LayerVersionArn` for arch apps, or `LayerVersionArnArm64`/`LayerVersionArnAmd64` for the wrapper).
 
 If you prefer the CLI, set `STACK_NAME` to the deployed stack name and run:
 
@@ -22,6 +26,97 @@ aws cloudformation describe-stacks \
 ```
 
 Attach the matching output to your Lambda function.
+
+## Quick start (create a Lambda function)
+
+1. Deploy the SAR application (wrapper or per-arch) and export the layer ARN.
+
+Wrapper (arm64 output example):
+
+```sh
+STACK_NAME=lambda-shell-runtime
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnArm64'].OutputValue" \
+  --output text)
+```
+
+Per-arch application:
+
+```sh
+STACK_NAME=lambda-shell-runtime-arm64
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArn'].OutputValue" \
+  --output text)
+```
+
+For x86_64, use `LayerVersionArnAmd64` (wrapper) or deploy the amd64 application.
+
+2. Create a simple handler and package it:
+
+```sh
+cat > handler <<'SH'
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+printf '%s' "$payload" | jq -c '{ok:true, input:.}'
+SH
+
+chmod +x handler
+zip -r function.zip handler
+```
+
+3. Create an execution role (if you do not already have one):
+
+```sh
+aws iam create-role \
+  --role-name lambda-shell-runtime-role \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "lambda.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam attach-role-policy \
+  --role-name lambda-shell-runtime-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+ROLE_ARN=$(aws iam get-role \
+  --role-name lambda-shell-runtime-role \
+  --query "Role.Arn" \
+  --output text)
+```
+
+4. Create the function with the layer:
+
+```sh
+aws lambda create-function \
+  --function-name hello-shell-runtime \
+  --runtime provided.al2023 \
+  --handler handler \
+  --architectures arm64 \
+  --role "$ROLE_ARN" \
+  --zip-file fileb://function.zip \
+  --layers "$LAYER_ARN"
+```
+
+For x86_64, set `--architectures x86_64` and use the amd64 layer ARN.
+
+5. Invoke it:
+
+```sh
+aws lambda invoke \
+  --function-name hello-shell-runtime \
+  --payload '{"message":"hello"}' \
+  response.json
+
+cat response.json
+```
 
 ## Manual publish (without SAR)
 
@@ -52,14 +147,6 @@ aws lambda publish-layer-version \
   --compatible-architectures x86_64
 ```
 
-## Create a function
-
-- Runtime: `provided.al2023`
-- Architecture: `arm64` or `x86_64`
-- Handler: the executable name of your handler file
-
-The Handler value is provided to the runtime via `_HANDLER`.
-
 ## Handler contract
 
 The handler must be an executable file in the function package. The runtime:
@@ -85,16 +172,3 @@ Only AWS-defined environment variables are used:
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
 
 The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.
-
-## Example handler
-
-```sh
-#!/bin/sh
-set -eu
-
-payload=$(cat)
-
-printf '%s' "$payload" | jq -c '{ok:true, input:.}'
-```
-
-Package the handler into a zip and set the function Handler to `handler`.

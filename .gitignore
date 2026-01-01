@@ -5,4 +5,5 @@
 /layer/amd64/opt/
 .aws-sam/
 packaged.yaml
+packaged-*.yaml
 samconfig.toml

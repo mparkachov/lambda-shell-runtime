@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bootstrap resources for lambda-shell-runtime (SAR packaging bucket).
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: lambda-shell-runtime
+    Description: S3 bucket name used for SAM packaging.
+  CreateBucket:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Create the bucket when true; skip when false.
+  S3Prefix:
+    Type: String
+    Default: sar
+    Description: S3 key prefix for SAR artifacts.
+
+Conditions:
+  CreateBucketCondition: !Equals [!Ref CreateBucket, 'true']
+
+Resources:
+  SarBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBucketCondition
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Ref BucketName
+      LifecycleConfiguration:
+        Rules:
+          - Id: SarArtifactsLifecycle
+            Status: Enabled
+            Filter:
+              Prefix: !Sub '${S3Prefix}/'
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER_IR
+                TransitionInDays: 90
+
+  SarBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSarRead
+            Effect: Allow
+            Principal:
+              Service: serverlessrepo.amazonaws.com
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/${S3Prefix}/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:serverlessrepo:${AWS::Region}:${AWS::AccountId}:applications/*'
+
+Outputs:
+  BucketName:
+    Value: !Ref BucketName

@@ -5,7 +5,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 self="$root/scripts/package_layer.sh"
 layer_base="$root/layer"
 dist_dir="$root/dist"
-template_path="$root/template.yaml"
+template_paths=${TEMPLATE_PATHS:-"$root/template.yaml $root/template-arm64.yaml $root/template-amd64.yaml"}
+
+. "$root/scripts/aws_env.sh"
 
 host_arch() {
   arch=$(uname -m 2>/dev/null || true)
@@ -80,22 +82,32 @@ case "$aws_version" in
     ;;
 esac
 
-if [ ! -f "$template_path" ]; then
-  printf '%s\n' "template.yaml not found at $template_path" >&2
-  exit 1
-fi
+for template_path in $template_paths; do
+  if [ ! -f "$template_path" ]; then
+    printf '%s\n' "Template not found at $template_path" >&2
+    exit 1
+  fi
 
-if ! grep -q '^    SemanticVersion:' "$template_path"; then
-  printf '%s\n' "SemanticVersion not found in $template_path" >&2
-  exit 1
-fi
+  if ! grep -q '^    SemanticVersion:' "$template_path"; then
+    printf '%s\n' "SemanticVersion not found in $template_path" >&2
+    exit 1
+  fi
 
-tmp_template=$(mktemp)
-awk -v version="$aws_version" '
-  $1 == "SemanticVersion:" { print "    SemanticVersion: " version; next }
-  { print }
-' "$template_path" > "$tmp_template"
-mv "$tmp_template" "$template_path"
+  app_name=""
+  case "$(basename "$template_path")" in
+    template.yaml) app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE} ;;
+    template-arm64.yaml) app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64} ;;
+    template-amd64.yaml) app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64} ;;
+  esac
+
+  tmp_template=$(mktemp)
+  awk -v version="$aws_version" -v app_name="$app_name" '
+    $1 == "Name:" && app_name != "" { sub(/Name:.*/, "Name: " app_name); print; next }
+    $1 == "SemanticVersion:" { sub(/SemanticVersion:.*/, "SemanticVersion: " version); print; next }
+    { print }
+  ' "$template_path" > "$tmp_template"
+  mv "$tmp_template" "$template_path"
+done
 
 mkdir -p "$dist_dir"
 
@@ -103,6 +115,6 @@ zip_path="$dist_dir/lambda-shell-runtime-$arch.zip"
 rm -f "$zip_path"
 
 layer_parent=$(dirname "$layer_root")
-( cd "$layer_parent" && zip -ry "$zip_path" opt )
+( cd "$layer_parent" && zip -9 -ry "$zip_path" opt )
 
 cp "$zip_path" "$dist_dir/lambda-shell-runtime-$arch-$aws_version.zip"

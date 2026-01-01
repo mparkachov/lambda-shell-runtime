@@ -25,7 +25,7 @@ The Docker build uses `curl-minimal` to keep dependencies small. If you need ful
 ./scripts/package_layer.sh
 ```
 
-This produces `dist/lambda-shell-runtime-<arch>.zip` with a top-level `opt/` directory and a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI v2 version.
+This produces `dist/lambda-shell-runtime-<arch>.zip` with a top-level `opt/` directory and a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also updates the `SemanticVersion` in `template.yaml`, `template-arm64.yaml`, and `template-amd64.yaml` to match the bundled AWS CLI v2 version.
 
 To package both architectures:
 
@@ -51,38 +51,143 @@ All shell scripts are written for POSIX `sh` and should pass `shellcheck`.
 shellcheck runtime/bootstrap scripts/*.sh examples/hello/handler
 ```
 
+## AWS configuration
+
+Project defaults live in `scripts/aws_env.sh`. It pins the AWS region to `us-east-1` and sets default names
+for the S3 bucket, setup stack, SAR applications, and the S3 prefix used for SAR artifacts. These defaults
+are used by `make aws-check`, `make aws-setup`, and `make release`.
+`./scripts/package_layer.sh` keeps the SAR application names in the templates aligned with these defaults; rerun it after changing the app name settings.
+
+Override any of the defaults by exporting:
+- `LSR_AWS_REGION`
+- `LSR_BUCKET_NAME`
+- `LSR_STACK_NAME`
+- `LSR_SAR_APP_BASE`
+- `LSR_SAR_APP_NAME_ARM64`
+- `LSR_SAR_APP_NAME_AMD64`
+- `LSR_S3_PREFIX`
+- `S3_BUCKET` (optional; overrides the bucket used for packaging)
+
 ## Release
 
+Use the `make release` target locally or the GitHub Actions workflow `.github/workflows/release.yml` (it calls the same target).
+
+```sh
+S3_BUCKET=your-bucket make release
+```
+
+It:
+- builds and packages both architectures
+- updates the templates' `SemanticVersion` to the bundled AWS CLI v2 version
+- checks for an existing Git tag
+- if missing, commits the templates, tags the repo, and creates a GitHub release with versioned artifacts
+- publishes the SAR applications with `sam package`/`sam publish`
+- updates `template.yaml` with the arm64/amd64 ApplicationIds and publishes the wrapper application
+
+Local requirements:
+- Docker with buildx/QEMU (for cross-arch)
+- `sam`, `gh`, and `aws` CLIs installed (`gh auth login` or `GH_TOKEN` required)
+- `S3_BUCKET` set in the environment (or via `make release S3_BUCKET=...`)
+- `S3_PREFIX` (optional; defaults to `sar`)
+
+Repo setup required for the workflow:
+- `AWS_ROLE_ARN` secret for OIDC
+- `AWS_REGION` and `S3_BUCKET` repository variables
+- allow GitHub Actions to push to `main` if branch protection is enabled
+
+To run in GitHub: Actions -> Release -> Run workflow.
+
+Manual fallback:
 1. Ensure `ARCH=all ./scripts/package_layer.sh` has been run so the versioned artifacts are created.
-2. Tag the release in Git. Use the AWS CLI version as the tag to match `template.yaml` `SemanticVersion`.
+2. Tag the release in Git. Use the AWS CLI version as the tag to match the templates' `SemanticVersion`.
 
 ## Publish to SAR
 
-1. Build and package the layer (this updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI version):
+If you use `make release` (locally or via the workflow), SAR publishing is handled there. For manual publishing:
+
+1. Build and package the layer (this updates the templates' `SemanticVersion` to match the bundled AWS CLI version):
 
 ```sh
 ./scripts/build_layer.sh
 ./scripts/package_layer.sh
 ```
 
-2. Set `S3_BUCKET` to an S3 bucket in your account and package the template:
+2. Set `S3_BUCKET` to an S3 bucket in your account and package each template:
 
 ```sh
 sam package \
-  --template-file template.yaml \
+  --template-file template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --output-template-file packaged.yaml
+  --s3-prefix "sar" \
+  --output-template-file packaged-arm64.yaml
+
+sam package \
+  --template-file template-amd64.yaml \
+  --s3-bucket "$S3_BUCKET" \
+  --s3-prefix "sar" \
+  --output-template-file packaged-amd64.yaml
 ```
 
 3. Publish to SAR:
 
 ```sh
+sam publish --template packaged-arm64.yaml
+sam publish --template packaged-amd64.yaml
+```
+
+4. Update the wrapper template with the architecture application IDs and publish it:
+
+```sh
+ARM64_APP_ID=$(aws serverlessrepo list-applications \
+  --query "Applications[?Name=='lambda-shell-runtime-arm64'].ApplicationId | [0]" \
+  --output text)
+AMD64_APP_ID=$(aws serverlessrepo list-applications \
+  --query "Applications[?Name=='lambda-shell-runtime-amd64'].ApplicationId | [0]" \
+  --output text)
+
+sed -i.bak \
+  -e "s|__APP_ID_ARM64__|$ARM64_APP_ID|g" \
+  -e "s|__APP_ID_AMD64__|$AMD64_APP_ID|g" \
+  template.yaml
+
+sam package \
+  --template-file template.yaml \
+  --s3-bucket "$S3_BUCKET" \
+  --s3-prefix "sar" \
+  --output-template-file packaged.yaml
+
 sam publish --template packaged.yaml
 ```
 
-## GitHub Actions AWS connectivity
+## AWS setup
 
-The manual workflow `.github/workflows/aws-connectivity.yml` validates GitHub Actions access to AWS. It uses OIDC and requires a role with appropriate permissions.
+Use `make aws-setup` to bootstrap the S3 bucket and create the SAR applications if they do not exist.
+CloudFormation cannot create SAR applications directly, so the target creates the bucket via `aws-setup.yaml`
+and then runs `sam publish` to create the first SAR version if needed.
+
+```sh
+make aws-setup
+```
+
+Options:
+- `BUCKET_NAME` (default: `lambda-shell-runtime`)
+- `STACK_NAME` (default: `lambda-shell-runtime-setup`)
+- `SAR_APP_NAME_BASE` (default: `lambda-shell-runtime`)
+- `SAR_APP_NAME_ARM64` (default: `lambda-shell-runtime-arm64`)
+- `SAR_APP_NAME_AMD64` (default: `lambda-shell-runtime-amd64`)
+- `S3_BUCKET` (optional; defaults to `BUCKET_NAME` for packaging)
+- `S3_PREFIX` (optional; defaults to `sar`)
+
+Behavior:
+- If the bucket already exists and is accessible, the stack skips bucket creation to avoid failure.
+- If the stack created the bucket, deleting the stack will fail when the bucket is not empty.
+- If any SAR application is missing, `make aws-setup` runs `make package-all` and publishes the first version (arm64, amd64, and the wrapper).
+- The bucket policy grants SAR read access only to the configured `S3_PREFIX`.
+- The lifecycle rule transitions objects under `S3_PREFIX/` to STANDARD_IA after 30 days and GLACIER_IR after 90 days.
+
+## GitHub Actions AWS check
+
+The manual workflow `.github/workflows/aws-check.yml` validates GitHub Actions access to AWS. It runs `make aws-check`, which you can also execute locally. Set `S3_BUCKET` so the check can validate bucket access.
 
 ### One-time AWS setup (admin)
 

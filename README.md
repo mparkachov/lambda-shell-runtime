@@ -3,7 +3,7 @@
 ![CI](https://github.com/mparkachov/lambda-shell-runtime/actions/workflows/ci.yml/badge.svg)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-`lambda-shell-runtime` is a minimal AWS Lambda custom runtime implemented in POSIX shell for `provided.al2023` (arm64, x86_64). It is packaged as a Lambda Layer and includes AWS CLI v2 and jq. The primary distribution target is the AWS Serverless Application Repository (SAR), so teams can install the application and receive layer versions.
+`lambda-shell-runtime` is a minimal AWS Lambda custom runtime implemented in POSIX shell for `provided.al2023` (arm64, x86_64). It is packaged as a Lambda Layer and includes AWS CLI v2 and jq. The primary distribution target is the AWS Serverless Application Repository (SAR), which publishes a thin wrapper app (`lambda-shell-runtime`) that references the per-architecture apps and exposes both layer ARNs.
 
 ## Design goals
 
@@ -17,7 +17,9 @@
 - `layer/opt`: staged layer contents for the host architecture
 - `scripts/`: build, package, and smoke test scripts
 - `docker/Dockerfile`: build image for Amazon Linux 2023 (arm64, x86_64)
-- `template.yaml`: SAR application template (SAM)
+- `template.yaml`: SAR wrapper application (arm64 + amd64)
+- `template-arm64.yaml`, `template-amd64.yaml`: SAR application templates (SAM)
+- `SAR_README.md`: SAR application README shown to end users
 - `examples/hello/`: minimal handler example
 - `docs/`: usage and development notes
 
@@ -36,7 +38,7 @@ The build image uses `curl-minimal` to keep dependencies small. If the AWS CLI d
 ```
 
 The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-runtime-amd64.zip`, each with a top-level `opt/` directory.
-`./scripts/package_layer.sh` also writes versioned artifacts named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip` and updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI v2 version.
+`./scripts/package_layer.sh` also writes versioned artifacts named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip` and updates the `SemanticVersion` in both templates to match the bundled AWS CLI v2 version.
 
 ## Smoke test
 
@@ -50,7 +52,7 @@ The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-run
 - Architecture: `arm64` or `x86_64`
 - Handler: executable name of your handler file
 
-See [docs/USAGE.md](docs/USAGE.md) for full details, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
+See [docs/USAGE.md](docs/USAGE.md) for end-user usage, [SAR_README.md](SAR_README.md) for the SAR listing instructions, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
 
 ## Publish to SAR
 
@@ -63,12 +65,22 @@ Set `S3_BUCKET` to an S3 bucket in your account and run:
 
 ```sh
 sam package \
-  --template-file template.yaml \
+  --template-file template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --output-template-file packaged.yaml
+  --s3-prefix "sar" \
+  --output-template-file packaged-arm64.yaml
 
-sam publish --template packaged.yaml
+sam publish --template packaged-arm64.yaml
+
+sam package \
+  --template-file template-amd64.yaml \
+  --s3-bucket "$S3_BUCKET" \
+  --s3-prefix "sar" \
+  --output-template-file packaged-amd64.yaml
+
+sam publish --template packaged-amd64.yaml
 ```
 
-The stack outputs include `LayerVersionArnArm64` and `LayerVersionArnAmd64`; use the one that matches your function architecture.
-`./scripts/package_layer.sh` updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI v2 version; review and commit the change for each release.
+Each SAR application publishes a single layer output (`LayerVersionArn`) for its architecture.
+`./scripts/package_layer.sh` updates the templates' `SemanticVersion` to match the bundled AWS CLI v2 version; review and commit the change for each release.
+The wrapper application in `template.yaml` references both architecture-specific apps; `make release` and `make aws-setup` publish it after the per-arch apps.
