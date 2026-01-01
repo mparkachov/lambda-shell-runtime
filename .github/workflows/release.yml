@@ -2,6 +2,8 @@ name: Release
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
 
 permissions:
   contents: write
@@ -21,24 +23,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check release version
+        id: check
+        env:
+          CHECK_RELEASE_STRICT: "0"
+        run: make check-release
+
       - name: Set up QEMU
+        if: steps.check.outputs.release_needed == 'true'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
       - name: Set up Docker Buildx
+        if: steps.check.outputs.release_needed == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Set up SAM CLI
+        if: steps.check.outputs.release_needed == 'true'
         uses: aws-actions/setup-sam@v2
 
       - name: Configure AWS credentials (OIDC)
+        if: steps.check.outputs.release_needed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Release
+        if: steps.check.outputs.release_needed == 'true'
         env:
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           GH_TOKEN: ${{ github.token }}

@@ -1,4 +1,4 @@
-.PHONY: build build-layer build-arm64 build-amd64 build-all package-layer package-arm64 package-amd64 package-all smoke-test test release aws-check aws-setup clean
+.PHONY: build build-layer build-arm64 build-amd64 build-all package-layer package-arm64 package-amd64 package-all smoke-test test check-release release aws-check aws-setup clean
 
 SHELLSPEC ?= ./vendor/shellspec/shellspec
 SHELLSPEC_ARGS ?=
@@ -35,7 +35,14 @@ smoke-test: build-layer
 test:
 	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec
 
-release: package-all
+check-release:
+	./scripts/check_release.sh
+
+release:
+	./scripts/check_release.sh; status=$$?; \
+	if [ $$status -eq 2 ]; then exit 0; fi; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	$(MAKE) package-all; \
 	./scripts/release.sh
 
 aws-check:
