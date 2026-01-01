@@ -85,6 +85,14 @@ It:
 - updates `template.yaml` with the arm64/amd64 ApplicationIds and publishes the wrapper application
 - uploads SAR artifacts under `S3_PREFIX/<version>`
 
+To check whether a release is needed without building anything, run:
+
+```sh
+make check-release
+```
+
+This checks the latest AWS CLI v2 version (via the AWS CLI GitHub tags) against existing Git tags.
+
 Local requirements:
 - Docker with buildx/QEMU (for cross-arch)
 - `sam`, `gh`, and `aws` CLIs installed (`gh auth login` or `GH_TOKEN` required)
