@@ -52,7 +52,7 @@ The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-run
 - Architecture: `arm64` or `x86_64`
 - Handler: executable name of your handler file
 
-See [docs/USAGE.md](docs/USAGE.md) for end-user usage, [SAR_README.md](SAR_README.md) for the SAR listing instructions, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
+See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [docs/USAGE.md](docs/USAGE.md) for manual publishing and the runtime contract, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
 
 ## Publish to SAR
 

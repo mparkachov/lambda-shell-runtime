@@ -49,12 +49,126 @@ LAYER_ARN=$(aws cloudformation describe-stacks \
 
 Lambda automatically includes `/opt/bin` and `/opt/lib` from layers in `PATH` and `LD_LIBRARY_PATH`.
 
-## Quick start
+## Quick start (create a Lambda function)
 
-For a full end-to-end walkthrough (deploy the app, create a role, create the function, and invoke it),
-see the usage guide:
+1. Deploy the SAR application (wrapper or per-arch) and export the layer ARN.
 
-https://github.com/mparkachov/lambda-shell-runtime/blob/main/docs/USAGE.md#quick-start-create-a-lambda-function
+Wrapper (arm64 output example):
+
+```sh
+STACK_NAME=lambda-shell-runtime
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnArm64'].OutputValue" \
+  --output text)
+```
+
+Per-arch application:
+
+```sh
+STACK_NAME=lambda-shell-runtime-arm64
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArn'].OutputValue" \
+  --output text)
+```
+
+For x86_64, use `LayerVersionArnAmd64` (wrapper) or deploy the amd64 application.
+
+2. Create a simple handler and package it:
+
+```sh
+cat > handler <<'SH'
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+printf '%s' "$payload" | jq -c '{ok:true, input:.}'
+SH
+
+chmod +x handler
+zip -r function.zip handler
+```
+
+3. Create an execution role (if you do not already have one):
+
+```sh
+aws iam create-role \
+  --role-name lambda-shell-runtime-role \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "lambda.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam attach-role-policy \
+  --role-name lambda-shell-runtime-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+ROLE_ARN=$(aws iam get-role \
+  --role-name lambda-shell-runtime-role \
+  --query "Role.Arn" \
+  --output text)
+```
+
+4. Create the function with the layer:
+
+```sh
+aws lambda create-function \
+  --function-name hello-shell-runtime \
+  --runtime provided.al2023 \
+  --handler handler \
+  --architectures arm64 \
+  --role "$ROLE_ARN" \
+  --zip-file fileb://function.zip \
+  --layers "$LAYER_ARN"
+```
+
+For x86_64, set `--architectures x86_64` and use the amd64 layer ARN.
+
+5. Invoke it:
+
+```sh
+aws lambda invoke \
+  --function-name hello-shell-runtime \
+  --payload '{"message":"hello"}' \
+  response.json
+
+cat response.json
+```
+
+## Lambda console notes (important)
+
+If you create a function in the AWS Lambda console, it may show sample files like `bootstrap.sh` and `hello.sh`. Those are for a different custom-runtime tutorial and are not used with this layer.
+This runtime already provides the `bootstrap` in the layer. Your function package should only include an executable handler file that reads STDIN and writes STDOUT.
+
+Console checklist:
+- Runtime: `provided.al2023`
+- Architecture: `arm64` or `x86_64` (must match the layer you attached)
+- Handler: the executable filename in your zip (for example, `handler`)
+- Layers: add the layer ARN from the SAR stack output
+
+Example handler file (save as `handler`, no extension):
+
+```sh
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+printf '%s' "$payload" | jq -c '{ok:true, input:.}'
+```
+
+Package it:
+
+```sh
+chmod +x handler
+zip -r function.zip handler
+```
+
+Upload `function.zip` in the console and keep the Handler value set to `handler`.
 
 ## Handler contract
 
