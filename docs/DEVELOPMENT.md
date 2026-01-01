@@ -6,7 +6,17 @@
 ./scripts/build_layer.sh
 ```
 
-This builds an Amazon Linux 2023 (arm64) container, installs AWS CLI v2 and jq, and stages the layer contents under `layer/opt`.
+This builds an Amazon Linux 2023 container for the host architecture, installs AWS CLI v2 and jq, and stages the layer contents under `layer/opt`. Non-host builds are staged under `layer/<arch>/opt`.
+
+To build a specific architecture or both:
+
+```sh
+ARCH=arm64 ./scripts/build_layer.sh
+ARCH=amd64 ./scripts/build_layer.sh
+ARCH=all ./scripts/build_layer.sh
+```
+
+Cross-architecture builds require Docker buildx with QEMU/binfmt configured so the non-native image can be built locally.
 The Docker build uses `curl-minimal` to keep dependencies small. If you need full curl features, switch the Dockerfile to `curl`.
 
 ## Package the layer
@@ -15,7 +25,13 @@ The Docker build uses `curl-minimal` to keep dependencies small. If you need ful
 ./scripts/package_layer.sh
 ```
 
-This produces `dist/lambda-shell-runtime-arm64.zip` with a top-level `opt/` directory and a versioned artifact named `dist/lambda-shell-runtime-arm64-<aws-cli-version>.zip`. The script also updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI v2 version.
+This produces `dist/lambda-shell-runtime-<arch>.zip` with a top-level `opt/` directory and a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI v2 version.
+
+To package both architectures:
+
+```sh
+ARCH=all ./scripts/package_layer.sh
+```
 
 ## Smoke test
 
@@ -37,20 +53,19 @@ shellcheck runtime/bootstrap scripts/*.sh examples/hello/handler
 
 ## Release
 
-1. Ensure `./scripts/package_layer.sh` has been run so the versioned artifact is created.
+1. Ensure `ARCH=all ./scripts/package_layer.sh` has been run so the versioned artifacts are created.
 2. Tag the release in Git. Use the AWS CLI version as the tag to match `template.yaml` `SemanticVersion`.
 
 ## Publish to SAR
 
-1. Update `SemanticVersion` in `template.yaml`.
-2. Build and package the layer:
+1. Build and package the layer (this updates `template.yaml` `SemanticVersion` to match the bundled AWS CLI version):
 
 ```sh
 ./scripts/build_layer.sh
 ./scripts/package_layer.sh
 ```
 
-3. Set `S3_BUCKET` to an S3 bucket in your account and package the template:
+2. Set `S3_BUCKET` to an S3 bucket in your account and package the template:
 
 ```sh
 sam package \
@@ -59,7 +74,7 @@ sam package \
   --output-template-file packaged.yaml
 ```
 
-4. Publish to SAR:
+3. Publish to SAR:
 
 ```sh
 sam publish --template packaged.yaml

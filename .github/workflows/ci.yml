@@ -27,17 +27,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
       - name: Build layer
         run: make build
 
-      - name: Run ShellSpec (arm64 container)
+      - name: Run ShellSpec
         id: shellspec
         continue-on-error: true
-        run: |
-          docker run --rm --platform linux/arm64 \
-            -v "$PWD:/workspace" -w /workspace \
-            public.ecr.aws/amazonlinux/amazonlinux:2023 \
-            /bin/sh -lc "dnf -y install curl-minimal python3 make && SHELLSPEC_ARGS='--output junit --shell /bin/sh' make test"
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh' make test
 
       - name: Upload test report artifact
         if: always()

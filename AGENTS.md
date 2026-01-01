@@ -6,12 +6,12 @@
 The runtime is packaged as a Lambda Layer and is intended to be consumed directly or via the AWS Serverless Application Repository (SAR).
 
 ## Scope
-- Architecture: arm64
+- Architecture: arm64, amd64
 - Runtime type: AWS Lambda custom runtime (`provided.al2023`)
 - Shell: system-provided `/bin/sh`
 - Distribution: Lambda Layer
 - Tools included:
-  - AWS CLI v2 (Linux aarch64)
+  - AWS CLI v2 (Linux aarch64, x86_64)
   - jq
 
 ## Design Principles
@@ -78,9 +78,9 @@ The runtime does not transform or reinterpret event or response payloads.
 No additional response validation is performed.
 
 ## Build Strategy
-- All binaries are built in a Docker environment based on Amazon Linux 2023 (arm64).
+- All binaries are built in a Docker environment based on Amazon Linux 2023 (arm64, x86_64).
 - AWS CLI v2:
-    - Installed using the official Linux aarch64 installer
+    - Installed using the official Linux installer for the target architecture
     - Installed under `/opt/aws-cli`
     - Exposed via `/opt/bin/aws`
 - jq:
@@ -96,7 +96,9 @@ No additional response validation is performed.
 
 ## Versioning
 - Git tags correspond to releases
-- Each release produces a versioned layer artifact: `lambda-shell-runtime-arm64-<version>.zip`
+- Each release produces versioned layer artifacts:
+    - `lambda-shell-runtime-arm64-<version>.zip`
+    - `lambda-shell-runtime-amd64-<version>.zip`
 
 ## Licensing
 - Apache License 2.0
@@ -104,7 +106,6 @@ No additional response validation is performed.
 
 ## Non-Goals
 - Automatic dependency updates
-- x86_64 support
 - Opinionated handler frameworks
 - Nonstandard configuration or environment variables
 

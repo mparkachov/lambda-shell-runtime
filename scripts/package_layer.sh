@@ -2,35 +2,74 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-layer_dir="$root/layer"
+self="$root/scripts/package_layer.sh"
+layer_base="$root/layer"
 dist_dir="$root/dist"
-zip_path="$dist_dir/lambda-shell-runtime-arm64.zip"
 template_path="$root/template.yaml"
 
-if [ ! -d "$layer_dir/opt" ]; then
-  printf '%s\n' "Layer contents not found at $layer_dir/opt. Run scripts/build_layer.sh first." >&2
+host_arch() {
+  arch=$(uname -m 2>/dev/null || true)
+  case "$arch" in
+    aarch64|arm64) printf '%s\n' "arm64" ;;
+    x86_64|amd64) printf '%s\n' "amd64" ;;
+    *) return 1 ;;
+  esac
+}
+
+arch=${ARCH:-${1:-}}
+if [ -z "$arch" ]; then
+  arch=$(host_arch) || {
+    printf '%s\n' "Unable to detect host architecture" >&2
+    exit 1
+  }
+fi
+
+if [ "$arch" = "all" ]; then
+  ARCH=arm64 "$self"
+  ARCH=amd64 "$self"
+  exit 0
+fi
+
+case "$arch" in
+  arm64|amd64) ;;
+  *)
+    printf '%s\n' "Unsupported architecture: $arch" >&2
+    exit 1
+    ;;
+ esac
+
+host=$(host_arch)
+layer_root="$layer_base/opt"
+if [ "$arch" != "$host" ] || [ ! -d "$layer_root" ]; then
+  layer_root="$layer_base/$arch/opt"
+fi
+
+if [ ! -d "$layer_root" ]; then
+  printf '%s\n' "Layer contents not found at $layer_root. Run scripts/build_layer.sh first." >&2
   exit 1
 fi
 
-if [ ! -x "$layer_dir/opt/bin/aws" ]; then
-  printf '%s\n' "AWS CLI not found at $layer_dir/opt/bin/aws. Run scripts/build_layer.sh first." >&2
+if [ ! -x "$layer_root/bin/aws" ]; then
+  printf '%s\n' "AWS CLI not found at $layer_root/bin/aws. Run scripts/build_layer.sh first." >&2
   exit 1
 fi
 
 aws_version=""
-version_file="$layer_dir/opt/aws-cli/v2/current/dist/awscli/__init__.py"
-if [ -f "$version_file" ]; then
-  aws_version=$(sed -n "s/^__version__ = ['\"]\\([0-9][0-9.]*\\)['\"].*/\\1/p" "$version_file")
-fi
-if [ -z "$aws_version" ]; then
-  version_file=$(find "$layer_dir/opt/aws-cli" -type f -path "*/awscli/__init__.py" 2>/dev/null | head -n1)
-  if [ -n "$version_file" ]; then
-    aws_version=$(sed -n "s/^__version__ = ['\"]\\([0-9][0-9.]*\\)['\"].*/\\1/p" "$version_file")
+for version_dir in "$layer_root/aws-cli/v2/"[0-9]*; do
+  if [ ! -d "$version_dir" ]; then
+    continue
   fi
-fi
+  version_base=$(basename "$version_dir")
+  case "$version_base" in
+    [0-9]*.[0-9]*.[0-9]*)
+      aws_version="$version_base"
+      break
+      ;;
+  esac
+done
 case "$aws_version" in
   ''|*[!0-9.]*|*.*.*.*)
-    printf '%s\n' "Unable to determine AWS CLI version from $layer_dir/opt/aws-cli" >&2
+    printf '%s\n' "Unable to determine AWS CLI version from $layer_root/aws-cli" >&2
     exit 1
     ;;
   *.*.*)
@@ -59,8 +98,11 @@ awk -v version="$aws_version" '
 mv "$tmp_template" "$template_path"
 
 mkdir -p "$dist_dir"
+
+zip_path="$dist_dir/lambda-shell-runtime-$arch.zip"
 rm -f "$zip_path"
 
-( cd "$layer_dir" && zip -r "$zip_path" opt )
+layer_parent=$(dirname "$layer_root")
+( cd "$layer_parent" && zip -ry "$zip_path" opt )
 
-cp "$zip_path" "$dist_dir/lambda-shell-runtime-arm64-$aws_version.zip"
+cp "$zip_path" "$dist_dir/lambda-shell-runtime-$arch-$aws_version.zip"

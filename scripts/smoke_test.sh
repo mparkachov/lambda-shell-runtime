@@ -3,15 +3,40 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-if [ ! -x "$root/layer/opt/bootstrap" ] || \
-   [ ! -x "$root/layer/opt/bin/aws" ] || \
-   [ ! -x "$root/layer/opt/bin/jq" ]; then
-  "$root/scripts/build_layer.sh"
+host_arch() {
+  arch=$(uname -m 2>/dev/null || true)
+  case "$arch" in
+    aarch64|arm64) printf '%s\n' "arm64" ;;
+    x86_64|amd64) printf '%s\n' "amd64" ;;
+    *) return 1 ;;
+  esac
+}
+
+arch=${ARCH:-}
+if [ -z "$arch" ]; then
+  arch=$(host_arch) || {
+    printf '%s\n' "Unable to detect host architecture" >&2
+    exit 1
+  }
 fi
 
-"$root/layer/opt/bin/aws" --version
-LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  "$root/layer/opt/bin/jq" --version
+host=$(host_arch)
+if [ "$arch" != "$host" ]; then
+  printf '%s\n' "ARCH=$arch does not match host $host. Run tests on the matching architecture." >&2
+  exit 2
+fi
+
+layer_root="$root/layer/opt"
+
+if [ ! -x "$layer_root/bootstrap" ] || \
+   [ ! -x "$layer_root/bin/aws" ] || \
+   [ ! -x "$layer_root/bin/jq" ]; then
+  ARCH="$arch" "$root/scripts/build_layer.sh"
+fi
+
+"$layer_root/bin/aws" --version
+LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  "$layer_root/bin/jq" --version
 
 event_file=$(mktemp)
 response_file=$(mktemp)
@@ -100,12 +125,12 @@ fi
 
 port=$(cat "$port_file")
 
-PATH="$root/layer/opt/bin:$PATH" \
-LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+PATH="$layer_root/bin:$PATH" \
+LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 AWS_LAMBDA_RUNTIME_API="127.0.0.1:${port}" \
 LAMBDA_TASK_ROOT="$root/examples/hello" \
 _HANDLER="handler" \
-"$root/layer/opt/bootstrap" >"$log_file" 2>&1 &
+"$layer_root/bootstrap" >"$log_file" 2>&1 &
 bootstrap_pid=$!
 
 waits=200
@@ -121,5 +146,5 @@ if [ ! -s "$response_file" ]; then
   exit 1
 fi
 
-LD_LIBRARY_PATH="$root/layer/opt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  "$root/layer/opt/bin/jq" -e '.message == "hello"' "$response_file" >/dev/null
+LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  "$layer_root/bin/jq" -e '.message == "hello"' "$response_file" >/dev/null

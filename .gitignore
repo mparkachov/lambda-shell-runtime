@@ -1,6 +1,8 @@
 .DS_Store
 /dist/
 /layer/opt/
+/layer/arm64/opt/
+/layer/amd64/opt/
 .aws-sam/
 packaged.yaml
 samconfig.toml

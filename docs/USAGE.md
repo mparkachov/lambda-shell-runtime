@@ -1,6 +1,6 @@
 # Usage
 
-This runtime implements the AWS Lambda Custom Runtime API for `provided.al2023` and is distributed as a Lambda Layer. It uses the system-provided `/bin/sh` and follows the documented runtime contract.
+This runtime implements the AWS Lambda Custom Runtime API for `provided.al2023` and is distributed as a Lambda Layer for arm64 and x86_64. It uses the system-provided `/bin/sh` and follows the documented runtime contract.
 
 AWS documentation:
 - https://docs.aws.amazon.com/lambda/latest/dg/runtimes-custom.html
@@ -8,10 +8,10 @@ AWS documentation:
 
 ## Install from SAR (recommended)
 
-Deploy the Serverless Application Repository (SAR) application in your account. The deployment creates a Lambda Layer version and returns its ARN as a stack output.
+Deploy the Serverless Application Repository (SAR) application in your account. The deployment creates two Lambda Layer versions (arm64 and x86_64) and returns their ARNs as stack outputs.
 The SAR application semantic version tracks the bundled AWS CLI v2 version.
 
-If you deployed with the console, open the CloudFormation stack outputs and copy `LayerVersionArn`.
+If you deployed with the console, open the CloudFormation stack outputs and copy `LayerVersionArnArm64` or `LayerVersionArnAmd64` depending on your function architecture.
 
 If you prefer the CLI, set `STACK_NAME` to the deployed stack name and run:
 
@@ -21,7 +21,7 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs'
 ```
 
-Attach the `LayerVersionArn` output to your Lambda function.
+Attach the matching output to your Lambda function.
 
 ## Manual publish (without SAR)
 
@@ -42,10 +42,20 @@ aws lambda publish-layer-version \
   --compatible-architectures arm64
 ```
 
+For x86_64, publish the amd64 artifact:
+
+```sh
+aws lambda publish-layer-version \
+  --layer-name lambda-shell-runtime \
+  --zip-file fileb://dist/lambda-shell-runtime-amd64.zip \
+  --compatible-runtimes provided.al2023 \
+  --compatible-architectures x86_64
+```
+
 ## Create a function
 
 - Runtime: `provided.al2023`
-- Architecture: `arm64`
+- Architecture: `arm64` or `x86_64`
 - Handler: the executable name of your handler file
 
 The Handler value is provided to the runtime via `_HANDLER`.

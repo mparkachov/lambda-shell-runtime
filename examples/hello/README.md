@@ -9,7 +9,7 @@ This example shows a minimal handler that reads JSON from STDIN and writes JSON 
 ./scripts/package_layer.sh
 ```
 
-The layer zip will be created at `dist/lambda-shell-runtime-arm64.zip`.
+The layer zips will be created at `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-runtime-amd64.zip`.
 
 ## Package the function
 
@@ -20,13 +20,23 @@ zip -r ../../dist/hello-function.zip handler
 
 ## Install the layer from SAR
 
-Deploy the SAR application in your account. After deployment, read the `LayerVersionArn` output from the CloudFormation stack and export it:
+Deploy the SAR application in your account. After deployment, read the output that matches your function architecture and export it:
 
 ```sh
 STACK_NAME=lambda-shell-runtime
 LAYER_ARN=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArn'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnArm64'].OutputValue" \
+  --output text)
+```
+
+For x86_64, use `LayerVersionArnAmd64` instead:
+
+```sh
+STACK_NAME=lambda-shell-runtime
+LAYER_ARN=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='LayerVersionArnAmd64'].OutputValue" \
   --output text)
 ```
 
@@ -44,6 +54,16 @@ Record the returned LayerVersionArn for the next step.
 
 Set `LAYER_ARN` to the returned LayerVersionArn if you used the manual publish path.
 
+For x86_64, publish the amd64 artifact instead:
+
+```sh
+aws lambda publish-layer-version \
+  --layer-name lambda-shell-runtime \
+  --zip-file fileb://dist/lambda-shell-runtime-amd64.zip \
+  --compatible-runtimes provided.al2023 \
+  --compatible-architectures x86_64
+```
+
 ## Create the function
 
 Set `ROLE_ARN` to an existing Lambda execution role ARN.
@@ -60,6 +80,7 @@ aws lambda create-function \
 ```
 
 `--handler handler` maps to the `_HANDLER` environment variable used by the runtime.
+For x86_64, set `--architectures x86_64` and use the amd64 layer ARN.
 
 ## Invoke
 
