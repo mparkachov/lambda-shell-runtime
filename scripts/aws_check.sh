@@ -72,14 +72,142 @@ check_stack_access() {
 
 extract_s3_uris() {
   python3 - "$1" <<'PY'
+import json
 import re
 import sys
 
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as fh:
     text = fh.read()
-uris = sorted(set(re.findall(r"s3://[^\\s\"']+", text)))
-for uri in uris:
+
+uris = set()
+
+def add_uri(uri: str) -> None:
+    uri = uri.strip().strip("'\"")
+    if uri.startswith("s3://"):
+        uris.add(uri)
+
+def add_bucket_key(bucket: str, key: str) -> None:
+    if not bucket or not key:
+        return
+    bucket = str(bucket).strip().strip("'\"")
+    key = str(key).strip().strip("'\"")
+    if bucket and key:
+        uris.add(f"s3://{bucket}/{key}")
+
+for uri in re.findall(r"s3://[^\\s\"']+", text):
+    add_uri(uri)
+
+def walk(obj, path):
+    if isinstance(obj, dict):
+        if "S3Bucket" in obj and "S3Key" in obj:
+            add_bucket_key(obj.get("S3Bucket"), obj.get("S3Key"))
+        if "Bucket" in obj and "Key" in obj and any(p in ("ContentUri", "Content") for p in path):
+            add_bucket_key(obj.get("Bucket"), obj.get("Key"))
+        for key, value in obj.items():
+            walk(value, path + [key])
+    elif isinstance(obj, list):
+        for item in obj:
+            walk(item, path)
+    elif isinstance(obj, str):
+        add_uri(obj)
+
+try:
+    data = json.loads(text)
+except Exception:
+    data = None
+
+if data is not None:
+    walk(data, [])
+
+content_indent = None
+content_bucket = None
+content_key = None
+contenturi_indent = None
+contenturi_bucket = None
+contenturi_key = None
+
+def parse_inline_map(line: str, key_name: str):
+    if not line.startswith(f"{key_name}:"):
+        return None, None
+    _, rest = line.split(":", 1)
+    rest = rest.strip()
+    if not (rest.startswith("{") and rest.endswith("}")):
+        return None, None
+    bucket = None
+    key = None
+    for part in rest.strip("{}").split(","):
+        part = part.strip()
+        if part.startswith("Bucket:"):
+            bucket = part.split(":", 1)[1].strip()
+        elif part.startswith("Key:"):
+            key = part.split(":", 1)[1].strip()
+        elif part.startswith("S3Bucket:"):
+            bucket = part.split(":", 1)[1].strip()
+        elif part.startswith("S3Key:"):
+            key = part.split(":", 1)[1].strip()
+    return bucket, key
+
+lines = text.splitlines()
+for raw in lines:
+    line = raw.rstrip("\n")
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        continue
+    indent = len(line) - len(line.lstrip())
+
+    if contenturi_indent is not None and indent <= contenturi_indent:
+        add_bucket_key(contenturi_bucket, contenturi_key)
+        contenturi_indent = None
+        contenturi_bucket = None
+        contenturi_key = None
+    if content_indent is not None and indent <= content_indent:
+        add_bucket_key(content_bucket, content_key)
+        content_indent = None
+        content_bucket = None
+        content_key = None
+
+    if stripped.startswith("ContentUri:") and "s3://" in stripped:
+        add_uri(stripped.split(":", 1)[1].strip())
+        continue
+
+    bucket, key = parse_inline_map(stripped, "ContentUri")
+    if bucket or key:
+        add_bucket_key(bucket, key)
+        continue
+
+    bucket, key = parse_inline_map(stripped, "Content")
+    if bucket or key:
+        add_bucket_key(bucket, key)
+        continue
+
+    if re.match(r"^ContentUri:\s*$", stripped):
+        contenturi_indent = indent
+        contenturi_bucket = None
+        contenturi_key = None
+        continue
+    if re.match(r"^Content:\s*$", stripped):
+        content_indent = indent
+        content_bucket = None
+        content_key = None
+        continue
+
+    if contenturi_indent is not None:
+        if stripped.startswith("Bucket:"):
+            contenturi_bucket = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Key:"):
+            contenturi_key = stripped.split(":", 1)[1].strip()
+
+    if content_indent is not None:
+        if stripped.startswith("S3Bucket:"):
+            content_bucket = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("S3Key:"):
+            content_key = stripped.split(":", 1)[1].strip()
+
+add_bucket_key(contenturi_bucket, contenturi_key)
+add_bucket_key(content_bucket, content_key)
+
+for uri in sorted(uris):
     print(uri)
 PY
 }
