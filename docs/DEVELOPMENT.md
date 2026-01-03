@@ -57,16 +57,20 @@ Project defaults live in `scripts/aws_env.sh`. It pins the AWS region to `us-eas
 for the S3 bucket, setup stack, SAR applications, and the S3 prefix used for SAR artifacts. These defaults
 are used by `make aws-check`, `make aws-setup`, and `make release`.
 `./scripts/package_layer.sh` keeps the SAR application names in the templates aligned with these defaults; rerun it after changing the app name settings.
+Set `ENV=dev` to switch to the dev defaults (the `*_DEV` values).
 
 Override any of the defaults by exporting:
+- `ENV` (`prod` or `dev`, default: `prod`)
 - `LSR_AWS_REGION`
-- `LSR_BUCKET_NAME`
-- `LSR_BUCKET_NAME_DEV`
-- `LSR_STACK_NAME`
-- `LSR_STACK_NAME_DEV`
-- `LSR_SAR_APP_BASE`
-- `LSR_SAR_APP_NAME_ARM64`
-- `LSR_SAR_APP_NAME_AMD64`
+- `LSR_BUCKET_NAME` (prod bucket)
+- `LSR_BUCKET_NAME_DEV` (dev bucket)
+- `LSR_STACK_NAME` (prod setup stack)
+- `LSR_STACK_NAME_DEV` (dev setup stack)
+- `LSR_SAR_APP_BASE` (prod SAR app base)
+- `LSR_SAR_APP_BASE_DEV` (dev SAR app base)
+- `LSR_SAR_VERSION_DEV` (dev SAR version, default `0.0.0`)
+- `LSR_SAR_APP_NAME_ARM64` / `LSR_SAR_APP_NAME_AMD64` (override derived names)
+- `LSR_LAYER_NAME_ARM64` / `LSR_LAYER_NAME_AMD64` (override layer names)
 - `LSR_S3_PREFIX`
 - `S3_BUCKET` (optional; overrides the bucket used for packaging)
 
@@ -109,18 +113,23 @@ version that was already published.
 For fast iteration without touching the stable SAR apps, use the dev-only apps:
 
 ```sh
-make publish-dev-arm64
+ENV=dev make publish-sar ARCH=arm64
 ```
 
 ```sh
-make publish-dev-amd64
+ENV=dev make publish-sar ARCH=amd64
 ```
 
+Aliases:
+- `make publish-dev-arm64`
+- `make publish-dev-amd64`
+
 Defaults:
-- SAR app name: `lambda-shell-runtime-dev-arm64` (override with `DEV_SAR_APP_NAME_ARM64`)
-- SAR app name: `lambda-shell-runtime-dev-amd64` (override with `DEV_SAR_APP_NAME_AMD64`)
-- S3 bucket: `lambda-shell-runtime-dev` (override with `DEV_BUCKET_NAME` or `DEV_S3_BUCKET`)
-- Dev version: `0.0.0` (override with `DEV_SAR_VERSION`, must be `major.minor.patch`)
+- SAR app base: `lambda-shell-runtime-dev` (override with `LSR_SAR_APP_BASE_DEV`)
+- SAR app name: `<base>-arm64` / `<base>-amd64` (override with `LSR_SAR_APP_NAME_ARM64` / `LSR_SAR_APP_NAME_AMD64`)
+- Layer name: defaults to the SAR app name (override with `LSR_LAYER_NAME_ARM64` / `LSR_LAYER_NAME_AMD64`)
+- S3 bucket: `lambda-shell-runtime-dev` (override with `LSR_BUCKET_NAME_DEV`)
+- Dev version: `0.0.0` (override with `LSR_SAR_VERSION_DEV` or `LSR_SAR_VERSION`)
 - S3 prefix: `LSR_S3_PREFIX` / `S3_PREFIX` (dev publishes under `S3_PREFIX/0.0.0/<arch>` by default)
 
 This publishes only the selected dev SAR application and skips the wrapper/stable apps.
@@ -128,13 +137,26 @@ This publishes only the selected dev SAR application and skips the wrapper/stabl
 To delete the dev SAR apps (so you can republish the same version), run:
 
 ```sh
-make delete-dev-arm64
-make delete-dev-amd64
+ENV=dev make delete-sar ARCH=arm64
+ENV=dev make delete-sar ARCH=amd64
 ```
 
 Aliases:
 - `make delete-release-arm64`
 - `make delete-release-amd64`
+- `make delete-dev-arm64`
+- `make delete-dev-amd64`
+
+To deploy the dev SAR apps into your account (CloudFormation stacks), run:
+
+```sh
+ENV=dev make deploy-sar ARCH=arm64
+ENV=dev make deploy-sar ARCH=amd64
+```
+
+Aliases:
+- `make deploy-dev-arm64`
+- `make deploy-dev-amd64`
 
 Local requirements:
 - Docker with buildx/QEMU (for cross-arch)
@@ -155,7 +177,30 @@ Manual fallback:
 
 ## Publish to SAR
 
-If you use `make release` (locally or via the workflow), SAR publishing is handled there. For manual publishing:
+If you use `make release` (locally or via the workflow), SAR publishing is handled there. For manual publishing, prefer the make targets (they call `sam package`/`sam publish` and use `S3_PREFIX/<version>/<arch>`):
+
+```sh
+make publish-arm64
+make publish-amd64
+```
+
+These expect `dist/lambda-shell-runtime-<arch>.zip` to exist (run `make package-<arch>` first).
+
+To publish all three SAR applications (arm64, amd64, wrapper) in order:
+
+```sh
+make publish-all
+```
+
+`publish-all` requires the wrapper ApplicationIds to be populated in `template.yaml`.
+
+To publish the wrapper application after updating the ApplicationIds, run:
+
+```sh
+make publish-wrapper
+```
+
+If you want the raw SAM commands instead:
 
 1. Build and package the layer (this updates the templates' `SemanticVersion` to match the bundled AWS CLI version):
 
@@ -224,8 +269,11 @@ make aws-setup
 To create only the dev bucket and policy (no SAR publishing), use:
 
 ```sh
-make aws-setup-dev
+ENV=dev SKIP_SAR_PUBLISH=1 make aws-setup
 ```
+
+Alias:
+- `make aws-setup-dev`
 
 Options:
 - `BUCKET_NAME` (default: `lambda-shell-runtime`)
@@ -237,8 +285,10 @@ Options:
 - `S3_PREFIX` (optional; defaults to `sar`)
 
 Dev options:
-- `DEV_BUCKET_NAME` (default: `lambda-shell-runtime-dev`)
-- `DEV_STACK_NAME` (default: `lambda-shell-runtime-dev-setup`)
+- `LSR_BUCKET_NAME_DEV` (default: `lambda-shell-runtime-dev`)
+- `LSR_STACK_NAME_DEV` (default: `lambda-shell-runtime-dev-setup`)
+- `LSR_SAR_APP_BASE_DEV` (default: `lambda-shell-runtime-dev`)
+- `LSR_SAR_VERSION_DEV` (default: `0.0.0`)
 
 Behavior:
 - If the bucket already exists and is accessible, the stack skips bucket creation to avoid failure.

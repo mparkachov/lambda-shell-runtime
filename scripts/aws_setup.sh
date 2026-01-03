@@ -15,9 +15,9 @@ require_cmd aws
 
 stack_name=${STACK_NAME:-$LSR_STACK_NAME}
 bucket_name=${BUCKET_NAME:-$LSR_BUCKET_NAME}
-wrapper_app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
-arm64_app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}
-amd64_app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}
+wrapper_app_name=$LSR_SAR_APP_NAME_WRAPPER
+arm64_app_name=$LSR_SAR_APP_NAME_ARM64
+amd64_app_name=$LSR_SAR_APP_NAME_AMD64
 template_path="$root/aws-setup.yaml"
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
 template_wrapper="$root/template.yaml"
@@ -111,6 +111,11 @@ if [ "${SKIP_SAR_PUBLISH:-}" = "1" ]; then
   exit 0
 fi
 
+use_wrapper=true
+if [ "$LSR_ENV" = "dev" ]; then
+  use_wrapper=false
+fi
+
 arm64_exists=false
 amd64_exists=false
 wrapper_exists=false
@@ -120,7 +125,7 @@ fi
 if sar_app_exists "$amd64_app_name"; then
   amd64_exists=true
 fi
-if sar_app_exists "$wrapper_app_name"; then
+if [ "$use_wrapper" = "true" ] && sar_app_exists "$wrapper_app_name"; then
   wrapper_exists=true
 fi
 
@@ -172,6 +177,7 @@ if [ -z "$amd64_id" ] || [ "$amd64_id" = "None" ] || [ "$amd64_id" = "null" ]; t
   exit 1
 fi
 
-update_wrapper_template "$template_wrapper" "$version" "$arm64_id" "$amd64_id" "$wrapper_app_name"
-
-publish_app "wrapper" "$template_wrapper" "$wrapper_exists"
+if [ "$use_wrapper" = "true" ]; then
+  update_wrapper_template "$template_wrapper" "$version" "$arm64_id" "$amd64_id" "$wrapper_app_name"
+  publish_app "wrapper" "$template_wrapper" "$wrapper_exists"
+fi

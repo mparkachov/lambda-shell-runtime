@@ -18,7 +18,7 @@ require_cmd gh
 
 release_branch=${RELEASE_BRANCH:-main}
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
-wrapper_app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
+wrapper_app_name=$LSR_SAR_APP_NAME_WRAPPER
 template_wrapper="$root/template.yaml"
 template_arm64="$root/template-arm64.yaml"
 template_amd64="$root/template-amd64.yaml"
@@ -128,14 +128,14 @@ for arch in arm64 amd64; do
   fi
 done
 
-arm64_id=$(sar_app_id "${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}")
-amd64_id=$(sar_app_id "${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}")
+arm64_id=$(sar_app_id "$LSR_SAR_APP_NAME_ARM64")
+amd64_id=$(sar_app_id "$LSR_SAR_APP_NAME_AMD64")
 if [ -z "$arm64_id" ] || [ "$arm64_id" = "None" ] || [ "$arm64_id" = "null" ]; then
-  printf '%s\n' "Unable to resolve SAR application ID for ${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}. Run make aws-setup first." >&2
+  printf '%s\n' "Unable to resolve SAR application ID for $LSR_SAR_APP_NAME_ARM64. Run make aws-setup first." >&2
   exit 1
 fi
 if [ -z "$amd64_id" ] || [ "$amd64_id" = "None" ] || [ "$amd64_id" = "null" ]; then
-  printf '%s\n' "Unable to resolve SAR application ID for ${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}. Run make aws-setup first." >&2
+  printf '%s\n' "Unable to resolve SAR application ID for $LSR_SAR_APP_NAME_AMD64. Run make aws-setup first." >&2
   exit 1
 fi
 
