@@ -67,12 +67,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp "$root/examples/hello/handler" "$code_dir/handler"
+cp "$root/runtime-tutorial/function.sh" "$code_dir/function.sh"
 cat <<'BOOT' > "$code_dir/bootstrap"
 #!/bin/sh
 exec /opt/bootstrap
 BOOT
-chmod +x "$code_dir/handler" "$code_dir/bootstrap"
+chmod +x "$code_dir/function.sh" "$code_dir/bootstrap"
 
 aws_arch="$arch"
 if [ "$arch" = "amd64" ]; then
@@ -100,7 +100,7 @@ Resources:
     Properties:
       FunctionName: lambda-shell-runtime-hello
       Runtime: provided.al2023
-      Handler: handler
+      Handler: function.handler
       CodeUri: $code_dir
       Architectures:
         - $aws_arch

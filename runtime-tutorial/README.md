@@ -1,6 +1,8 @@
-# Hello Example
+# Runtime Tutorial
 
-This example shows a minimal handler that reads JSON from STDIN and writes JSON to STDOUT. It also calls `aws --version` and `jq` to prove the layer tools are on `PATH`.
+This example mirrors the AWS custom runtime tutorial layout while using the runtime from the layer. It defines a
+minimal handler function that reads JSON from the first argument and writes JSON to STDOUT. It also calls
+`aws --version` and `jq` to prove the layer tools are on `PATH`.
 
 ## Build the layer
 
@@ -14,8 +16,8 @@ The layer zips will be created at `dist/lambda-shell-runtime-arm64.zip` and `dis
 ## Package the function
 
 ```sh
-cd examples/hello
-zip -r ../../dist/hello-function.zip handler
+cd runtime-tutorial
+zip -r ../dist/hello-function.zip function.sh
 ```
 
 ## Install the layer from SAR
@@ -82,14 +84,14 @@ Set `ROLE_ARN` to an existing Lambda execution role ARN.
 aws lambda create-function \
   --function-name hello-shell-runtime \
   --runtime provided.al2023 \
-  --handler handler \
+  --handler function.handler \
   --architectures arm64 \
   --role "$ROLE_ARN" \
   --zip-file fileb://dist/hello-function.zip \
   --layers "$LAYER_ARN"
 ```
 
-`--handler handler` maps to the `_HANDLER` environment variable used by the runtime.
+`--handler function.handler` maps to the `_HANDLER` environment variable used by the runtime.
 For x86_64, set `--architectures x86_64` and use the amd64 layer ARN.
 
 ## Invoke

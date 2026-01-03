@@ -20,7 +20,7 @@
 - `template.yaml`: SAR wrapper application (arm64 + amd64)
 - `template-arm64.yaml`, `template-amd64.yaml`: SAR application templates (SAM)
 - `SAR_README.md`: SAR application README shown to end users
-- `examples/hello/`: minimal handler example
+- `runtime-tutorial/`: minimal handler example
 - `docs/`: usage and development notes
 
 ## Build the layer
@@ -50,9 +50,9 @@ The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-run
 
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64`
-- Handler: executable name of your handler file
+- Handler: `function.handler` (script stored as `function.sh` in your function package)
 
-See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [docs/USAGE.md](docs/USAGE.md) for manual publishing and the runtime contract, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [examples/hello/README.md](examples/hello/README.md) for a deployable example.
+See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [docs/USAGE.md](docs/USAGE.md) for manual publishing and the runtime contract, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [runtime-tutorial/README.md](runtime-tutorial/README.md) for a deployable example.
 
 ## Publish to SAR
 

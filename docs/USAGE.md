@@ -38,17 +38,22 @@ aws lambda publish-layer-version \
 
 ## Handler contract
 
-The handler must be a shell script file in the function package. If the file is executable, it is run directly.
-If not, the runtime invokes it with `/bin/sh` (useful for console-edited functions).
+The handler is a shell script in the function package. `_HANDLER` follows the `function.handler` pattern from the
+AWS custom runtime tutorial. For example, `_HANDLER=function.handler` loads `function.sh` from `LAMBDA_TASK_ROOT`,
+then invokes the `handler` shell function with the event JSON as the first argument.
+
+For compatibility, if `_HANDLER` does not contain a dot, the runtime treats it as a handler file. If the file is
+executable, it is run directly. If not, the runtime invokes it with `/bin/sh`.
+
 The runtime:
 
 1. Retrieves the next event from the Runtime API.
-2. Writes the event payload to the handler's STDIN.
+2. Passes the event payload to the handler (argument for `function.handler`, STDIN for file handlers).
 3. Reads the handler's STDOUT as the invocation response.
 
 The handler:
 
-- Reads JSON from STDIN
+- Reads the event JSON from the first argument (or STDIN for file handlers)
 - Writes the response JSON to STDOUT
 - Writes logs to STDERR
 
@@ -59,7 +64,7 @@ The runtime does not transform or reinterpret the event or response payload.
 Only AWS-defined environment variables are used:
 
 - `AWS_LAMBDA_RUNTIME_API`: host:port for the Runtime API
-- `_HANDLER`: handler executable name
+- `_HANDLER`: handler identifier (`function.handler` or a handler filename)
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
 
 The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.

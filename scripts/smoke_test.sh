@@ -128,8 +128,8 @@ port=$(cat "$port_file")
 PATH="$layer_root/bin:$PATH" \
 LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 AWS_LAMBDA_RUNTIME_API="127.0.0.1:${port}" \
-LAMBDA_TASK_ROOT="$root/examples/hello" \
-_HANDLER="handler" \
+LAMBDA_TASK_ROOT="$root/runtime-tutorial" \
+_HANDLER="function.handler" \
 "$layer_root/bootstrap" >"$log_file" 2>&1 &
 bootstrap_pid=$!
 

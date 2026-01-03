@@ -48,7 +48,7 @@ The smoke test:
 All shell scripts are written for POSIX `sh` and should pass `shellcheck`.
 
 ```sh
-shellcheck runtime/bootstrap scripts/*.sh examples/hello/handler
+shellcheck runtime/bootstrap scripts/*.sh runtime-tutorial/function.sh
 ```
 
 ## AWS configuration

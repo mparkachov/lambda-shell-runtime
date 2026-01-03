@@ -20,6 +20,19 @@ post_init_error() {
   rm -f "$payload"
 }
 
+post_invoke_error() {
+  request_id=$1
+  message=$2
+  error_type=$3
+  payload=$(mktemp)
+  escaped=$(json_escape "$message")
+  printf '{"errorMessage":"%s","errorType":"%s"}' "$escaped" "$error_type" > "$payload"
+  curl -sS -X POST \
+    "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/error" \
+    --data-binary "@$payload" >/dev/null || true
+  rm -f "$payload"
+}
+
 runtime_api=${AWS_LAMBDA_RUNTIME_API:-}
 if [ -z "$runtime_api" ]; then
   log "AWS_LAMBDA_RUNTIME_API is not set"
@@ -33,23 +46,61 @@ if [ -z "$handler_name" ]; then
   exit 1
 fi
 
-case "$handler_name" in
-  /*) handler_path="$handler_name" ;;
-  *) handler_path="$task_root/$handler_name" ;;
-esac
+handler_mode=""
+handler_path=""
+handler_func=""
+handler_basename=${handler_name##*/}
 
-handler_executable=1
-if [ ! -f "$handler_path" ]; then
-  post_init_error "Handler not found: $handler_path" "Runtime.InvalidHandler"
-  exit 1
-fi
-if [ ! -x "$handler_path" ]; then
-  if [ ! -r "$handler_path" ]; then
-    post_init_error "Handler not readable: $handler_path" "Runtime.InvalidHandler"
-    exit 1
-  fi
-  handler_executable=0
-fi
+case "$handler_basename" in
+  *.*)
+    handler_script=${handler_name%.*}
+    handler_func=${handler_name##*.}
+    if [ -z "$handler_script" ] || [ -z "$handler_func" ]; then
+      post_init_error "Invalid _HANDLER: $handler_name" "Runtime.InvalidHandler"
+      exit 1
+    fi
+    case "$handler_script" in
+      /*) handler_path="$handler_script" ;;
+      *) handler_path="$task_root/$handler_script" ;;
+    esac
+    case "$handler_path" in
+      *.sh) ;;
+      *) handler_path="${handler_path}.sh" ;;
+    esac
+    if [ ! -f "$handler_path" ]; then
+      post_init_error "Handler script not found: $handler_path" "Runtime.InvalidHandler"
+      exit 1
+    fi
+    if [ ! -r "$handler_path" ]; then
+      post_init_error "Handler script not readable: $handler_path" "Runtime.InvalidHandler"
+      exit 1
+    fi
+    if ! . "$handler_path"; then
+      post_init_error "Failed to load handler script: $handler_path" "Runtime.InvalidHandler"
+      exit 1
+    fi
+    handler_mode="function"
+    ;;
+  *)
+    case "$handler_name" in
+      /*) handler_path="$handler_name" ;;
+      *) handler_path="$task_root/$handler_name" ;;
+    esac
+    if [ ! -f "$handler_path" ]; then
+      post_init_error "Handler not found: $handler_path" "Runtime.InvalidHandler"
+      exit 1
+    fi
+    if [ ! -x "$handler_path" ]; then
+      if [ ! -r "$handler_path" ]; then
+        post_init_error "Handler not readable: $handler_path" "Runtime.InvalidHandler"
+        exit 1
+      fi
+      handler_mode="script"
+    else
+      handler_mode="executable"
+    fi
+    ;;
+esac
 
 while :; do
   headers=$(mktemp)
@@ -70,7 +121,18 @@ while :; do
   fi
 
   response=$(mktemp)
-  if [ "$handler_executable" -eq 1 ]; then
+  if [ "$handler_mode" = "function" ]; then
+    event_data=$(cat "$body")
+    if "$handler_func" "$event_data" > "$response"; then
+      curl -sS -X POST \
+        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
+        --data-binary "@$response" >/dev/null || true
+    else
+      handler_exit=$?
+      log "Handler exited with status ${handler_exit}"
+      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
+    fi
+  elif [ "$handler_mode" = "executable" ]; then
     if "$handler_path" < "$body" > "$response"; then
       curl -sS -X POST \
         "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
@@ -78,13 +140,7 @@ while :; do
     else
       handler_exit=$?
       log "Handler exited with status ${handler_exit}"
-      error_payload=$(mktemp)
-      escaped=$(json_escape "Handler exited with status ${handler_exit}")
-      printf '{"errorMessage":"%s","errorType":"Runtime.HandlerError"}' "$escaped" > "$error_payload"
-      curl -sS -X POST \
-        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/error" \
-        --data-binary "@$error_payload" >/dev/null || true
-      rm -f "$error_payload"
+      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
     fi
   else
     if sh "$handler_path" < "$body" > "$response"; then
@@ -94,13 +150,7 @@ while :; do
     else
       handler_exit=$?
       log "Handler exited with status ${handler_exit}"
-      error_payload=$(mktemp)
-      escaped=$(json_escape "Handler exited with status ${handler_exit}")
-      printf '{"errorMessage":"%s","errorType":"Runtime.HandlerError"}' "$escaped" > "$error_payload"
-      curl -sS -X POST \
-        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/error" \
-        --data-binary "@$error_payload" >/dev/null || true
-      rm -f "$error_payload"
+      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
     fi
   fi
 

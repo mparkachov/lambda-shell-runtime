@@ -1,0 +1,13 @@
+#!/bin/sh
+
+handler() {
+  event=$1
+
+  printf '%s\n' "handler received event" >&2
+
+  message=$(printf '%s' "$event" | jq -r '.message // "hello"')
+  aws_version=$(aws --version 2>&1 | awk '{print $1}')
+
+  printf '%s' "$event" | jq -c --arg message "$message" --arg aws "$aws_version" \
+    '{message:$message, aws_cli:$aws, input:.}'
+}

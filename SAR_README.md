@@ -45,7 +45,7 @@ LAYER_ARN=$(aws cloudformation describe-stacks \
 
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64` (must match the layer)
-- Handler: file name of your handler script in the function package (for example, `handler` or `handler.sh`)
+- Handler: `function.handler` (script stored as `function.sh` in your function package)
 
 Lambda automatically includes `/opt/bin` and `/opt/lib` from layers in `PATH` and `LD_LIBRARY_PATH`.
 
@@ -80,16 +80,16 @@ For x86_64, use `LayerVersionArnAmd64` (wrapper) or deploy the amd64 application
 2. Create a simple handler and package it:
 
 ```sh
-cat > handler <<'SH'
+cat > function.sh <<'SH'
 #!/bin/sh
-set -eu
 
-payload=$(cat)
-printf '%s' "$payload" | jq -c '{ok:true, input:.}'
+handler() {
+  event=$1
+  printf '%s' "$event" | jq -c '{ok:true, input:.}'
+}
 SH
 
-chmod +x handler
-zip -r function.zip handler
+zip -r function.zip function.sh
 ```
 
 3. Create an execution role (if you do not already have one):
@@ -122,7 +122,7 @@ ROLE_ARN=$(aws iam get-role \
 aws lambda create-function \
   --function-name hello-shell-runtime \
   --runtime provided.al2023 \
-  --handler handler \
+  --handler function.handler \
   --architectures arm64 \
   --role "$ROLE_ARN" \
   --zip-file fileb://function.zip \
@@ -145,31 +145,33 @@ cat response.json
 ## Lambda console notes (important)
 
 If you create a function in the AWS Lambda console, it may show sample files like `bootstrap.sh` and `hello.sh`. Those are for a different custom-runtime tutorial and are not used with this layer.
-This runtime already provides the `bootstrap` in the layer. Your function package should only include a handler script that reads STDIN and writes STDOUT.
+This runtime already provides the `bootstrap` in the layer. Your function package should only include a handler script (for example, `function.sh`) that defines a handler function.
 
 Console checklist:
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64` (must match the layer you attached)
-- Handler: the filename you created in the editor (for example, `handler`)
+- Handler: `function.handler` (script file is `function.sh`)
 - Layers: add the layer ARN from the SAR stack output
 
-Example handler file (save as `handler`, no extension, in the console editor):
+Example handler file (save as `function.sh` in the console editor):
 
 ```sh
 #!/bin/sh
-set -eu
 
-payload=$(cat)
-printf '%s' "$payload" | jq -c '{ok:true, input:.}'
+handler() {
+  event=$1
+  printf '%s' "$event" | jq -c '{ok:true, input:.}'
+}
 ```
 
-The runtime will execute this file with `/bin/sh` even if the console does not mark it as executable.
+The runtime sources this file; it does not need to be executable.
 
 ## Handler contract
 
-Your handler is an executable file that:
+Your handler is a shell script that defines a function. For example, `_HANDLER=function.handler` loads
+`function.sh` from `LAMBDA_TASK_ROOT` and invokes `handler` with the event JSON as the first argument.
 
-- reads the event JSON from STDIN
+- reads the event JSON from the first argument
 - writes the response JSON to STDOUT
 - writes logs to STDERR
 
