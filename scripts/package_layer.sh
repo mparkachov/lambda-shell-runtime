@@ -114,6 +114,6 @@ mkdir -p "$dist_dir"
 zip_path="$dist_dir/lambda-shell-runtime-$arch.zip"
 rm -f "$zip_path"
 
-( cd "$layer_root" && zip -9 -ry "$zip_path" bootstrap bin aws-cli lib )
+( cd "$layer_root" && zip -9 -ryq "$zip_path" bootstrap bin aws-cli lib )
 
 cp "$zip_path" "$dist_dir/lambda-shell-runtime-$arch-$aws_version.zip"
