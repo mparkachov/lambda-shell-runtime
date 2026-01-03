@@ -81,7 +81,7 @@ if [ "$version_arm64" != "$version_amd64" ]; then
   exit 1
 fi
 version=$version_arm64
-s3_prefix_publish="${s3_prefix_base}/${version}"
+s3_prefix_publish_base="${s3_prefix_base}/${version}"
 
 sar_app_id() {
   name=$1
@@ -179,6 +179,7 @@ gh release create "$version" \
 publish_template() {
   arch=$1
   template_path=$2
+  s3_prefix_publish="${s3_prefix_publish_base}/${arch}"
   packaged_path="$root/packaged-$arch.yaml"
   SAM_CLI_TELEMETRY=0 \
   sam package \

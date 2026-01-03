@@ -38,7 +38,9 @@ aws lambda publish-layer-version \
 
 ## Handler contract
 
-The handler must be an executable file in the function package. The runtime:
+The handler must be a shell script file in the function package. If the file is executable, it is run directly.
+If not, the runtime invokes it with `/bin/sh` (useful for console-edited functions).
+The runtime:
 
 1. Retrieves the next event from the Runtime API.
 2. Writes the event payload to the handler's STDIN.

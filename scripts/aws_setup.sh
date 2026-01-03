@@ -107,6 +107,10 @@ aws s3api put-bucket-lifecycle-configuration \
   --bucket "$bucket_name" \
   --lifecycle-configuration "file://$lifecycle_file"
 
+if [ "${SKIP_SAR_PUBLISH:-}" = "1" ]; then
+  exit 0
+fi
+
 arm64_exists=false
 amd64_exists=false
 wrapper_exists=false
@@ -134,7 +138,7 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-s3_prefix_publish="${s3_prefix_base}/${version}"
+s3_prefix_publish_base="${s3_prefix_base}/${version}"
 
 publish_app() {
   arch=$1
@@ -142,6 +146,7 @@ publish_app() {
   if [ "$3" = "true" ]; then
     return 0
   fi
+  s3_prefix_publish="${s3_prefix_publish_base}/${arch}"
   packaged_path="$root/packaged-$arch.yaml"
   SAM_CLI_TELEMETRY=0 \
   sam package \

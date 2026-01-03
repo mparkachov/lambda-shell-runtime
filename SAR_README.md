@@ -45,11 +45,13 @@ LAYER_ARN=$(aws cloudformation describe-stacks \
 
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64` (must match the layer)
-- Handler: executable file name in your function package
+- Handler: file name of your handler script in the function package (for example, `handler` or `handler.sh`)
 
 Lambda automatically includes `/opt/bin` and `/opt/lib` from layers in `PATH` and `LD_LIBRARY_PATH`.
 
 ## Quick start (create a Lambda function)
+
+If you prefer to work entirely in the AWS Lambda console, skip to **Lambda console notes** below.
 
 1. Deploy the SAR application (wrapper or per-arch) and export the layer ARN.
 
@@ -143,15 +145,15 @@ cat response.json
 ## Lambda console notes (important)
 
 If you create a function in the AWS Lambda console, it may show sample files like `bootstrap.sh` and `hello.sh`. Those are for a different custom-runtime tutorial and are not used with this layer.
-This runtime already provides the `bootstrap` in the layer. Your function package should only include an executable handler file that reads STDIN and writes STDOUT.
+This runtime already provides the `bootstrap` in the layer. Your function package should only include a handler script that reads STDIN and writes STDOUT.
 
 Console checklist:
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64` (must match the layer you attached)
-- Handler: the executable filename in your zip (for example, `handler`)
+- Handler: the filename you created in the editor (for example, `handler`)
 - Layers: add the layer ARN from the SAR stack output
 
-Example handler file (save as `handler`, no extension):
+Example handler file (save as `handler`, no extension, in the console editor):
 
 ```sh
 #!/bin/sh
@@ -161,14 +163,7 @@ payload=$(cat)
 printf '%s' "$payload" | jq -c '{ok:true, input:.}'
 ```
 
-Package it:
-
-```sh
-chmod +x handler
-zip -r function.zip handler
-```
-
-Upload `function.zip` in the console and keep the Handler value set to `handler`.
+The runtime will execute this file with `/bin/sh` even if the console does not mark it as executable.
 
 ## Handler contract
 

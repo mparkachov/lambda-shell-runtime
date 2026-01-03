@@ -61,7 +61,9 @@ are used by `make aws-check`, `make aws-setup`, and `make release`.
 Override any of the defaults by exporting:
 - `LSR_AWS_REGION`
 - `LSR_BUCKET_NAME`
+- `LSR_BUCKET_NAME_DEV`
 - `LSR_STACK_NAME`
+- `LSR_STACK_NAME_DEV`
 - `LSR_SAR_APP_BASE`
 - `LSR_SAR_APP_NAME_ARM64`
 - `LSR_SAR_APP_NAME_AMD64`
@@ -83,7 +85,7 @@ It:
 - if missing, commits the templates, tags the repo, and creates a GitHub release with versioned artifacts
 - publishes the SAR applications with `sam package`/`sam publish`
 - updates `template.yaml` with the arm64/amd64 ApplicationIds and publishes the wrapper application
-- uploads SAR artifacts under `S3_PREFIX/<version>`
+- uploads SAR artifacts under `S3_PREFIX/<version>/<arch>`
 
 To check whether a release is needed without building anything, run:
 
@@ -92,6 +94,46 @@ make check-release
 ```
 
 This checks the latest AWS CLI v2 version (via the AWS CLI GitHub tags) against existing Git tags.
+
+To delete the current GitHub release and tag (so you can re-run `make release`), run:
+
+```sh
+make delete-release
+```
+
+Note: SAR application versions are immutable. Deleting a GitHub release/tag does not remove the SAR
+version that was already published.
+
+## Dev SAR publishing (arm64/amd64)
+
+For fast iteration without touching the stable SAR apps, use the dev-only apps:
+
+```sh
+make publish-dev-arm64
+```
+
+```sh
+make publish-dev-amd64
+```
+
+Defaults:
+- SAR app name: `lambda-shell-runtime-dev-arm64` (override with `DEV_SAR_APP_NAME_ARM64`)
+- SAR app name: `lambda-shell-runtime-dev-amd64` (override with `DEV_SAR_APP_NAME_AMD64`)
+- S3 bucket: `lambda-shell-runtime-dev` (override with `DEV_BUCKET_NAME` or `DEV_S3_BUCKET`)
+- S3 prefix: `LSR_S3_PREFIX` / `S3_PREFIX` (dev publishes under `S3_PREFIX/latest/<arch>`)
+
+This publishes only the selected dev SAR application and skips the wrapper/stable apps.
+
+To delete the dev SAR apps (so you can republish the same version), run:
+
+```sh
+make delete-dev-arm64
+make delete-dev-amd64
+```
+
+Aliases:
+- `make delete-release-arm64`
+- `make delete-release-amd64`
 
 Local requirements:
 - Docker with buildx/QEMU (for cross-arch)
@@ -121,19 +163,19 @@ If you use `make release` (locally or via the workflow), SAR publishing is handl
 ./scripts/package_layer.sh
 ```
 
-2. Set `S3_BUCKET` to an S3 bucket in your account and package each template (use a versioned prefix like `sar/<version>` to group artifacts):
+2. Set `S3_BUCKET` to an S3 bucket in your account and package each template (use a versioned prefix like `sar/<version>/<arch>` to group artifacts):
 
 ```sh
 sam package \
   --template-file template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar/<version>" \
+  --s3-prefix "sar/<version>/arm64" \
   --output-template-file packaged-arm64.yaml
 
 sam package \
   --template-file template-amd64.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar/<version>" \
+  --s3-prefix "sar/<version>/amd64" \
   --output-template-file packaged-amd64.yaml
 ```
 
@@ -162,7 +204,7 @@ sed -i.bak \
 sam package \
   --template-file template.yaml \
   --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar" \
+  --s3-prefix "sar/<version>/wrapper" \
   --output-template-file packaged.yaml
 
 sam publish --template packaged.yaml
@@ -178,6 +220,12 @@ and then runs `sam publish` to create the first SAR version if needed.
 make aws-setup
 ```
 
+To create only the dev bucket and policy (no SAR publishing), use:
+
+```sh
+make aws-setup-dev
+```
+
 Options:
 - `BUCKET_NAME` (default: `lambda-shell-runtime`)
 - `STACK_NAME` (default: `lambda-shell-runtime-setup`)
@@ -186,6 +234,10 @@ Options:
 - `SAR_APP_NAME_AMD64` (default: `lambda-shell-runtime-amd64`)
 - `S3_BUCKET` (optional; defaults to `BUCKET_NAME` for packaging)
 - `S3_PREFIX` (optional; defaults to `sar`)
+
+Dev options:
+- `DEV_BUCKET_NAME` (default: `lambda-shell-runtime-dev`)
+- `DEV_STACK_NAME` (default: `lambda-shell-runtime-dev-setup`)
 
 Behavior:
 - If the bucket already exists and is accessible, the stack skips bucket creation to avoid failure.
