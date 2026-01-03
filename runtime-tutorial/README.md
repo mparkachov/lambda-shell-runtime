@@ -106,3 +106,8 @@ cat dist/response.json
 ```
 
 If the function role is permitted, the handler can also call AWS APIs using the bundled CLI.
+
+## Performance note
+
+The AWS CLI layer is large, so cold starts can be slow at 128 MB. If you want faster startup for testing, raise the
+function memory (for example, 512 MB) and invoke it twice to see warm performance.

@@ -152,6 +152,7 @@ Console checklist:
 - Architecture: `arm64` or `x86_64` (must match the layer you attached)
 - Handler: `function.handler` (script file is `function.sh`)
 - Layers: add the layer ARN from the SAR stack output
+- Performance: the AWS CLI layer is large; cold starts can be slow at 128 MB. Raising memory (for example, to 512 MB) and retrying a second invocation yields faster runs.
 
 Example handler file (save as `function.sh` in the console editor):
 

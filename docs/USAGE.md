@@ -68,3 +68,8 @@ Only AWS-defined environment variables are used:
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
 
 The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.
+
+## Performance note
+
+The AWS CLI layer adds size, which can make cold starts slow at low memory settings. For quicker testing, increase
+the function memory (for example, 512 MB) and invoke it twice to observe warm performance.
