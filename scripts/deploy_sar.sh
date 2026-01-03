@@ -12,6 +12,7 @@ require_cmd() {
 }
 
 require_cmd aws
+require_cmd curl
 
 resolve_app_id() {
   name=$1
@@ -104,7 +105,11 @@ if [ -z "$template_url" ] || [ "$template_url" = "None" ] || [ "$template_url" =
   exit 1
 fi
 
+template_file=$(mktemp "$root/.tmp-sar-template-${arch}.XXXXXX.yaml")
+trap 'rm -f "$template_file"' EXIT
+curl -fsSL "$template_url" -o "$template_file"
+
 aws cloudformation deploy \
   --stack-name "$stack_name" \
-  --template-url "$template_url" \
+  --template-file "$template_file" \
   --no-fail-on-empty-changeset
