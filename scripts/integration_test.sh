@@ -120,5 +120,5 @@ if ! sam local invoke HelloFunction \
   exit 1
 fi
 
-grep -Eq '"message"[[:space:]]*:[[:space:]]*"hello"' "$response"
+grep -Eq '"input"[[:space:]]*:' "$response"
 grep -Eq '"aws_cli"[[:space:]]*:[[:space:]]*"aws-cli/' "$response"

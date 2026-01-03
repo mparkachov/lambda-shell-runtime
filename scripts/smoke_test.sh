@@ -147,4 +147,4 @@ if [ ! -s "$response_file" ]; then
 fi
 
 LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  "$layer_root/bin/jq" -e '.message == "hello"' "$response_file" >/dev/null
+  "$layer_root/bin/jq" -e '.input.message == "hello"' "$response_file" >/dev/null
