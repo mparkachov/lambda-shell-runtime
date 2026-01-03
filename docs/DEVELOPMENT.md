@@ -368,6 +368,7 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, and `<S3_BUCKET_DEV>` to
       "Action": [
         "serverlessrepo:ListApplications",
         "serverlessrepo:CreateApplication",
+        "serverlessrepo:GetApplication",
         "serverlessrepo:UpdateApplication",
         "serverlessrepo:CreateApplicationVersion",
         "serverlessrepo:CreateCloudFormationTemplate",

@@ -23,6 +23,17 @@ template_wrapper="$root/template.yaml"
 template_arm64="$root/template-arm64.yaml"
 template_amd64="$root/template-amd64.yaml"
 
+ensure_git_identity() {
+  git_name=$(git config user.name 2>/dev/null || true)
+  git_email=$(git config user.email 2>/dev/null || true)
+  if [ -z "$git_name" ]; then
+    git config user.name "github-actions[bot]"
+  fi
+  if [ -z "$git_email" ]; then
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+  fi
+}
+
 cd "$root"
 
 current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
@@ -173,14 +184,7 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 if ! git diff --quiet HEAD -- "$template_wrapper" "$template_arm64" "$template_amd64"; then
-  git_name=$(git config user.name 2>/dev/null || true)
-  git_email=$(git config user.email 2>/dev/null || true)
-  if [ -z "$git_name" ]; then
-    git config user.name "github-actions[bot]"
-  fi
-  if [ -z "$git_email" ]; then
-    git config user.email "github-actions[bot]@users.noreply.github.com"
-  fi
+  ensure_git_identity
   git add "$template_wrapper" "$template_arm64" "$template_amd64"
   git commit -m "Release $version"
   git push origin "$current_branch"
@@ -210,6 +214,7 @@ if [ "$tag_exists" = "true" ]; then
   exit 0
 fi
 
+ensure_git_identity
 git tag -a "$version" -m "Release $version"
 git push origin "$version"
 
