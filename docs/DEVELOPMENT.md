@@ -312,8 +312,8 @@ To remove `AdministratorAccess` from the GitHub Actions role, attach a least-pri
 - `make aws-check` (permission validation)
 
 Create an IAM policy in the AWS console (IAM → Policies → Create policy → JSON) using the template below.
-Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `<S3_PREFIX>` to match your setup.
-`serverlessrepo:CreateApplication` does not support resource-level scoping, so it is limited by region instead.
+Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, and `<S3_BUCKET_DEV>` to match your setup.
+`serverlessrepo:CreateApplication` does not support resource-level scoping, so the SAR block uses `Resource: "*"`, with region restriction applied.
 
 ```json
 {
@@ -363,37 +363,22 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `
       "Resource": "*"
     },
     {
-      "Sid": "ServerlessRepoList",
-      "Effect": "Allow",
-      "Action": "serverlessrepo:ListApplications",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestedRegion": "<REGION>"
-        }
-      }
-    },
-    {
-      "Sid": "ServerlessRepoCreateApplication",
-      "Effect": "Allow",
-      "Action": "serverlessrepo:CreateApplication",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestedRegion": "<REGION>"
-        }
-      }
-    },
-    {
-      "Sid": "ServerlessRepoManageApps",
+      "Sid": "ServerlessRepo",
       "Effect": "Allow",
       "Action": [
+        "serverlessrepo:ListApplications",
+        "serverlessrepo:CreateApplication",
         "serverlessrepo:CreateApplicationVersion",
         "serverlessrepo:CreateCloudFormationTemplate",
         "serverlessrepo:GetCloudFormationTemplate",
         "serverlessrepo:DeleteApplication"
       ],
-      "Resource": "arn:aws:serverlessrepo:<REGION>:<ACCOUNT_ID>:applications/lambda-shell-runtime*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        }
+      }
     },
     {
       "Sid": "S3PackagingBucketsList",
@@ -419,8 +404,8 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `
         "s3:ListMultipartUploadParts"
       ],
       "Resource": [
-        "arn:aws:s3:::<S3_BUCKET_PROD>/<S3_PREFIX>/*",
-        "arn:aws:s3:::<S3_BUCKET_DEV>/<S3_PREFIX>/*"
+        "arn:aws:s3:::<S3_BUCKET_PROD>/*",
+        "arn:aws:s3:::<S3_BUCKET_DEV>/*"
       ]
     },
     {

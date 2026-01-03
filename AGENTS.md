@@ -112,3 +112,6 @@ No additional response validation is performed.
 - Nonstandard configuration or environment variables
 
 This document defines the authoritative design constraints for the project.
+
+## Workflow constraints
+- Do not create commits unless explicitly asked.
