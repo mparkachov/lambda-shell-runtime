@@ -59,6 +59,10 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Log AWS caller identity
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: aws sts get-caller-identity
+
       - name: Publish and deploy dev SAR (amd64)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.shellspec.outcome == 'success'
         env:
