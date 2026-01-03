@@ -26,13 +26,30 @@ template_amd64="$root/template-amd64.yaml"
 
 sar_app_id() {
   name=$1
-  aws serverlessrepo list-applications \
-    --query "Applications[?Name=='$name'].ApplicationId | [0]" \
-    --output text 2>/dev/null || true
+  attempts=${APP_LOOKUP_ATTEMPTS:-6}
+  delay=${APP_LOOKUP_DELAY:-3}
+  max_items=${APP_LOOKUP_MAX_ITEMS:-1000}
+
+  i=1
+  while [ "$i" -le "$attempts" ]; do
+    app_id=$(aws serverlessrepo list-applications \
+      --max-items "$max_items" \
+      --query "Applications[?Name=='$name'].ApplicationId | [0]" \
+      --output text 2>/dev/null || true)
+    if [ -n "$app_id" ] && [ "$app_id" != "None" ] && [ "$app_id" != "null" ]; then
+      printf '%s\n' "$app_id"
+      return 0
+    fi
+    if [ "$i" -lt "$attempts" ]; then
+      sleep "$delay"
+    fi
+    i=$((i + 1))
+  done
+  return 1
 }
 
 sar_app_exists() {
-  app_id=$(sar_app_id "$1")
+  app_id=$(sar_app_id "$1" || true)
   if [ -n "$app_id" ] && [ "$app_id" != "None" ] && [ "$app_id" != "null" ]; then
     return 0
   fi

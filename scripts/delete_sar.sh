@@ -13,6 +13,30 @@ require_cmd() {
 
 require_cmd aws
 
+resolve_app_id() {
+  name=$1
+  attempts=${APP_LOOKUP_ATTEMPTS:-4}
+  delay=${APP_LOOKUP_DELAY:-2}
+  max_items=${APP_LOOKUP_MAX_ITEMS:-1000}
+
+  i=1
+  while [ "$i" -le "$attempts" ]; do
+    app_id=$(aws serverlessrepo list-applications \
+      --max-items "$max_items" \
+      --query "Applications[?Name=='$name'].ApplicationId | [0]" \
+      --output text 2>/dev/null || true)
+    if [ -n "$app_id" ] && [ "$app_id" != "None" ] && [ "$app_id" != "null" ]; then
+      printf '%s\n' "$app_id"
+      return 0
+    fi
+    if [ "$i" -lt "$attempts" ]; then
+      sleep "$delay"
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 arch=${ARCH:-${1:-}}
 case "$arch" in
   arm64|amd64) ;;
@@ -58,9 +82,7 @@ if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   exit 1
 fi
 
-app_id=$(aws serverlessrepo list-applications \
-  --query "Applications[?Name=='$app_name'].ApplicationId | [0]" \
-  --output text 2>/dev/null || true)
+app_id=$(resolve_app_id "$app_name" || true)
 
 if [ -z "$app_id" ] || [ "$app_id" = "None" ] || [ "$app_id" = "null" ]; then
   printf '%s\n' "SAR application not found: $app_name"
