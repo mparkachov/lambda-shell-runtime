@@ -34,6 +34,13 @@ cp "$template_src" "$template_tmp"
 
 TEMPLATE_PATHS="$template_tmp" SAR_APP_NAME_ARM64="$dev_app_name" make package-arm64
 
+tmp_updated=$(mktemp "$root/.tmp-template-arm64.XXXXXX.yaml")
+awk -v app_name="$dev_app_name" '
+  $1 == "Name:" { sub(/Name:.*/, "Name: " app_name); print; next }
+  { print }
+' "$template_tmp" > "$tmp_updated"
+mv "$tmp_updated" "$template_tmp"
+
 s3_prefix_publish="${s3_prefix_base}/latest/arm64"
 packaged_path="$root/packaged-dev-arm64.yaml"
 
