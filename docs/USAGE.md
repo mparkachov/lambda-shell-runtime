@@ -59,13 +59,28 @@ The handler:
 
 The runtime does not transform or reinterpret the event or response payload.
 
+## Invocation metadata
+
+For each invocation, the runtime maps Runtime API headers to environment variables for the handler:
+
+- `LAMBDA_RUNTIME_AWS_REQUEST_ID` (`Lambda-Runtime-Aws-Request-Id`)
+- `LAMBDA_RUNTIME_DEADLINE_MS` (`Lambda-Runtime-Deadline-Ms`)
+- `LAMBDA_RUNTIME_INVOKED_FUNCTION_ARN` (`Lambda-Runtime-Invoked-Function-Arn`)
+- `LAMBDA_RUNTIME_TRACE_ID` (`Lambda-Runtime-Trace-Id`)
+- `LAMBDA_RUNTIME_CLIENT_CONTEXT` (`Lambda-Runtime-Client-Context`)
+- `LAMBDA_RUNTIME_COGNITO_IDENTITY` (`Lambda-Runtime-Cognito-Identity`)
+
+The runtime also sets `_X_AMZN_TRACE_ID` to the trace header value when present. Client context and Cognito identity
+are passed through as received (base64-encoded JSON per the Runtime API). Values are unset between invocations.
+
 ## Environment variables used
 
-Only AWS-defined environment variables are used:
+The runtime depends only on AWS-defined environment variables:
 
 - `AWS_LAMBDA_RUNTIME_API`: host:port for the Runtime API
 - `_HANDLER`: handler identifier (`function.handler` or a handler filename)
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
+- `_X_AMZN_TRACE_ID`: X-Ray trace header for the current invocation (set by the runtime when provided)
 
 The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.
 

@@ -9,6 +9,23 @@ json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+header_value() {
+  headers_file=$1
+  header_name=$2
+  awk -F': ' -v target="$(printf '%s' "$header_name" | tr '[:upper:]' '[:lower:]')" \
+    'tolower($1)==target {print $2; exit}' "$headers_file" | tr -d '\r'
+}
+
+set_invocation_env() {
+  name=$1
+  value=$2
+  if [ -n "$value" ]; then
+    export "$name=$value"
+  else
+    unset "$name"
+  fi
+}
+
 post_init_error() {
   message=$1
   error_type=$2
@@ -79,6 +96,10 @@ case "$handler_basename" in
       post_init_error "Failed to load handler script: $handler_path" "Runtime.InvalidHandler"
       exit 1
     fi
+    if ! command -v "$handler_func" >/dev/null 2>&1; then
+      post_init_error "Handler function not found: $handler_func" "Runtime.InvalidHandler"
+      exit 1
+    fi
     handler_mode="function"
     ;;
   *)
@@ -113,12 +134,25 @@ while :; do
     exit 1
   fi
 
-  request_id=$(awk -F': ' 'tolower($1)=="lambda-runtime-aws-request-id"{print $2}' "$headers" | tr -d '\r')
+  request_id=$(header_value "$headers" "Lambda-Runtime-Aws-Request-Id")
   if [ -z "$request_id" ]; then
     log "Missing Lambda-Runtime-Aws-Request-Id header"
     rm -f "$headers" "$body"
     exit 1
   fi
+  deadline_ms=$(header_value "$headers" "Lambda-Runtime-Deadline-Ms")
+  invoked_function_arn=$(header_value "$headers" "Lambda-Runtime-Invoked-Function-Arn")
+  trace_id=$(header_value "$headers" "Lambda-Runtime-Trace-Id")
+  client_context=$(header_value "$headers" "Lambda-Runtime-Client-Context")
+  cognito_identity=$(header_value "$headers" "Lambda-Runtime-Cognito-Identity")
+
+  set_invocation_env "LAMBDA_RUNTIME_AWS_REQUEST_ID" "$request_id"
+  set_invocation_env "LAMBDA_RUNTIME_DEADLINE_MS" "$deadline_ms"
+  set_invocation_env "LAMBDA_RUNTIME_INVOKED_FUNCTION_ARN" "$invoked_function_arn"
+  set_invocation_env "LAMBDA_RUNTIME_TRACE_ID" "$trace_id"
+  set_invocation_env "LAMBDA_RUNTIME_CLIENT_CONTEXT" "$client_context"
+  set_invocation_env "LAMBDA_RUNTIME_COGNITO_IDENTITY" "$cognito_identity"
+  set_invocation_env "_X_AMZN_TRACE_ID" "$trace_id"
 
   response=$(mktemp)
   if [ "$handler_mode" = "function" ]; then

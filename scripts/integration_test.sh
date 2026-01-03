@@ -52,11 +52,41 @@ if ! ARCH="$arch" "$root/scripts/build_layer.sh" >"$build_log" 2>&1; then
 fi
 rm -f "$build_log"
 
-host=$(host_arch)
-layer_root="$root/layer/opt"
-if [ "$arch" != "$host" ] || [ ! -d "$layer_root" ]; then
-  layer_root="$root/layer/$arch/opt"
+package_log=$(mktemp)
+if ! TEMPLATE_PATHS="" ARCH="$arch" "$root/scripts/package_layer.sh" >"$package_log" 2>&1; then
+  cat "$package_log" >&2
+  exit 1
 fi
+rm -f "$package_log"
+
+layer_zip="$root/dist/lambda-shell-runtime-$arch.zip"
+if [ ! -f "$layer_zip" ]; then
+  printf '%s\n' "Packaged layer zip not found at $layer_zip" >&2
+  exit 1
+fi
+
+python3 - "$layer_zip" <<'PY'
+import sys
+import zipfile
+
+path = sys.argv[1]
+with zipfile.ZipFile(path) as zf:
+    names = zf.namelist()
+
+def has_prefix(prefix: str) -> bool:
+    return any(name.startswith(prefix) for name in names)
+
+required = []
+if "bootstrap" not in names:
+    required.append("bootstrap")
+for prefix in ("bin/", "aws-cli/", "lib/"):
+    if not has_prefix(prefix):
+        required.append(prefix)
+if any(name.startswith("opt/") for name in names):
+    raise SystemExit("unexpected opt/ prefix in packaged layer zip")
+if required:
+    raise SystemExit(f"missing expected entries in packaged layer zip: {', '.join(required)}")
+PY
 
 code_dir=$(mktemp -d)
 response=$(mktemp)
@@ -89,7 +119,7 @@ Resources:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: lambda-shell-runtime
-      ContentUri: $layer_root
+      ContentUri: $layer_zip
       CompatibleRuntimes:
         - provided.al2023
       CompatibleArchitectures:
