@@ -25,7 +25,10 @@ The Docker build uses `curl-minimal` to keep dependencies small. If you need ful
 ./scripts/package_layer.sh
 ```
 
-This produces `dist/lambda-shell-runtime-<arch>.zip` with a top-level `opt/` directory and a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also updates the `SemanticVersion` in `template.yaml`, `template-arm64.yaml`, and `template-amd64.yaml` to match the bundled AWS CLI v2 version.
+This produces `dist/lambda-shell-runtime-<arch>.zip` with `bootstrap`, `bin/`, `aws-cli/`, and `lib/` at the zip
+root, plus a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also
+updates the `SemanticVersion` in `template.yaml`, `template-arm64.yaml`, and `template-amd64.yaml` to match the
+bundled AWS CLI v2 version.
 
 To package both architectures:
 

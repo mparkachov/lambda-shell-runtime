@@ -37,7 +37,8 @@ The build image uses `curl-minimal` to keep dependencies small. If the AWS CLI d
 ./scripts/package_layer.sh
 ```
 
-The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-runtime-amd64.zip`, each with a top-level `opt/` directory.
+The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-runtime-amd64.zip`, each containing
+`bootstrap`, `bin/`, `aws-cli/`, and `lib/` at the zip root (Lambda mounts them under `/opt`).
 `./scripts/package_layer.sh` also writes versioned artifacts named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip` and updates the `SemanticVersion` in both templates to match the bundled AWS CLI v2 version.
 
 ## Smoke test

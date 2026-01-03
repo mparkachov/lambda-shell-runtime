@@ -45,9 +45,10 @@ The runtime is packaged as a Lambda Layer and is intended to be consumed directl
 ....
 
 ## Lambda Layer Contents
-The layer zip must contain a top-level `opt/` directory, mounted by Lambda at `/opt`.
+The layer zip is unpacked into `/opt`. The zip root should contain `bootstrap`, `bin/`, `aws-cli/`, and `lib/` so
+they appear as `/opt/...` at runtime. Do not include a top-level `opt/` directory.
 
-Expected contents:
+Expected contents at runtime:
 - `/opt/bootstrap`
 - `/opt/bin/aws`
 - `/opt/bin/jq`
