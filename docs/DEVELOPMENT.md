@@ -302,7 +302,123 @@ Behavior:
 
 ## GitHub Actions AWS check
 
-The manual workflow `.github/workflows/aws-check.yml` validates GitHub Actions access to AWS. It runs `make aws-check`, which you can also execute locally. Set `S3_BUCKET` so the check can validate bucket access.
+The manual workflow `.github/workflows/aws-check.yml` validates GitHub Actions access to AWS for both dev and prod. It runs `make aws-check`, which you can also execute locally. Set `ENV` and `S3_BUCKET` (or `S3_BUCKET_DEV`) to target a specific environment, and use `AWS_CHECK_ARCHES` to limit checks to specific architectures.
+
+## CI IAM policy (restricted)
+
+To remove `AdministratorAccess` from the GitHub Actions role, attach a least-privilege policy that covers:
+- `make publish-sar` and `make deploy-sar` (dev CI)
+- `make release` (prod release)
+- `make aws-check` (permission validation)
+
+Create an IAM policy in the AWS console (IAM → Policies → Create policy → JSON) using the template below.
+Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `<S3_PREFIX>` to match your setup.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StsIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudFormationDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStacks",
+        "cloudformation:ValidateTemplate",
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LambdaLayers",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PublishLayerVersion",
+        "lambda:DeleteLayerVersion",
+        "lambda:GetLayerVersion"
+      ],
+      "Resource": "arn:aws:lambda:<REGION>:<ACCOUNT_ID>:layer:lambda-shell-runtime*"
+    },
+    {
+      "Sid": "LambdaLayerRead",
+      "Effect": "Allow",
+      "Action": "lambda:ListLayers",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ServerlessRepo",
+      "Effect": "Allow",
+      "Action": [
+        "serverlessrepo:ListApplications",
+        "serverlessrepo:CreateApplicationVersion",
+        "serverlessrepo:CreateCloudFormationTemplate",
+        "serverlessrepo:GetCloudFormationTemplate",
+        "serverlessrepo:DeleteApplication"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3PackagingBucketsList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucketMultipartUploads"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<S3_BUCKET_PROD>",
+        "arn:aws:s3:::<S3_BUCKET_DEV>"
+      ]
+    },
+    {
+      "Sid": "S3PackagingBucketsObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<S3_BUCKET_PROD>/<S3_PREFIX>/*",
+        "arn:aws:s3:::<S3_BUCKET_DEV>/<S3_PREFIX>/*"
+      ]
+    },
+    {
+      "Sid": "SarChangesetRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::awsserverlessrepo-changesets-*/*"
+    }
+  ]
+}
+```
+
+After creating the policy:
+1. IAM → Roles → `GitHubActionsLambdaShellRuntime` → Attach policies → attach the new policy.
+2. Remove `AdministratorAccess` from the role.
+3. If you use permission boundaries or SCPs, ensure they do not deny `s3:GetObject` for `awsserverlessrepo-changesets-*`.
+4. In GitHub repo variables, set `AWS_REGION`, `S3_BUCKET`, and (optionally) `S3_BUCKET_DEV`.
 
 ### One-time AWS setup (admin)
 
