@@ -313,6 +313,7 @@ To remove `AdministratorAccess` from the GitHub Actions role, attach a least-pri
 
 Create an IAM policy in the AWS console (IAM → Policies → Create policy → JSON) using the template below.
 Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `<S3_PREFIX>` to match your setup.
+`serverlessrepo:CreateApplication` does not support resource-level scoping, so it is limited by region instead.
 
 ```json
 {
@@ -362,16 +363,37 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, `<S3_BUCKET_DEV>`, and `
       "Resource": "*"
     },
     {
-      "Sid": "ServerlessRepo",
+      "Sid": "ServerlessRepoList",
+      "Effect": "Allow",
+      "Action": "serverlessrepo:ListApplications",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        }
+      }
+    },
+    {
+      "Sid": "ServerlessRepoCreateApplication",
+      "Effect": "Allow",
+      "Action": "serverlessrepo:CreateApplication",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        }
+      }
+    },
+    {
+      "Sid": "ServerlessRepoManageApps",
       "Effect": "Allow",
       "Action": [
-        "serverlessrepo:ListApplications",
         "serverlessrepo:CreateApplicationVersion",
         "serverlessrepo:CreateCloudFormationTemplate",
         "serverlessrepo:GetCloudFormationTemplate",
         "serverlessrepo:DeleteApplication"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:serverlessrepo:<REGION>:<ACCOUNT_ID>:applications/lambda-shell-runtime*"
     },
     {
       "Sid": "S3PackagingBucketsList",
