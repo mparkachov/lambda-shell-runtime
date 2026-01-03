@@ -120,7 +120,8 @@ Defaults:
 - SAR app name: `lambda-shell-runtime-dev-arm64` (override with `DEV_SAR_APP_NAME_ARM64`)
 - SAR app name: `lambda-shell-runtime-dev-amd64` (override with `DEV_SAR_APP_NAME_AMD64`)
 - S3 bucket: `lambda-shell-runtime-dev` (override with `DEV_BUCKET_NAME` or `DEV_S3_BUCKET`)
-- S3 prefix: `LSR_S3_PREFIX` / `S3_PREFIX` (dev publishes under `S3_PREFIX/latest/<arch>`)
+- Dev version: `0.0.0` (override with `DEV_SAR_VERSION`, must be `major.minor.patch`)
+- S3 prefix: `LSR_S3_PREFIX` / `S3_PREFIX` (dev publishes under `S3_PREFIX/0.0.0/<arch>` by default)
 
 This publishes only the selected dev SAR application and skips the wrapper/stable apps.
 

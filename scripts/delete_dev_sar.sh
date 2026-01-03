@@ -29,7 +29,8 @@ esac
 
 bucket_name=${DEV_BUCKET_NAME:-$LSR_BUCKET_NAME_DEV}
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
-latest_prefix="${s3_prefix_base}/latest/${arch}"
+dev_version=${DEV_SAR_VERSION:-0.0.0}
+dev_prefix="${s3_prefix_base}/${dev_version}/${arch}"
 
 if [ -z "$bucket_name" ]; then
   printf '%s\n' "DEV_BUCKET_NAME is not set." >&2
@@ -47,4 +48,4 @@ fi
 
 aws serverlessrepo delete-application --application-id "$app_id"
 
-aws s3 rm "s3://${bucket_name}/${latest_prefix}/" --recursive
+aws s3 rm "s3://${bucket_name}/${dev_prefix}/" --recursive

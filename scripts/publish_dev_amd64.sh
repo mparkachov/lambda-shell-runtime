@@ -17,10 +17,16 @@ require_cmd make
 
 bucket_name=${DEV_BUCKET_NAME:-$LSR_BUCKET_NAME_DEV}
 dev_app_name=${DEV_SAR_APP_NAME_AMD64:-${LSR_SAR_APP_BASE}-dev-amd64}
+dev_version=${DEV_SAR_VERSION:-0.0.0}
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
 
 if [ -z "$bucket_name" ]; then
   printf '%s\n' "DEV_BUCKET_NAME is not set." >&2
+  exit 1
+fi
+
+if ! printf '%s' "$dev_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  printf '%s\n' "DEV_SAR_VERSION must be a semver like 0.0.0 (got: $dev_version)" >&2
   exit 1
 fi
 
@@ -35,13 +41,14 @@ cp "$template_src" "$template_tmp"
 TEMPLATE_PATHS="$template_tmp" SAR_APP_NAME_AMD64="$dev_app_name" make package-amd64
 
 tmp_updated=$(mktemp "$root/.tmp-template-amd64.XXXXXX.yaml")
-awk -v app_name="$dev_app_name" '
+awk -v app_name="$dev_app_name" -v version="$dev_version" '
   $1 == "Name:" { sub(/Name:.*/, "Name: " app_name); print; next }
+  $1 == "SemanticVersion:" { sub(/SemanticVersion:.*/, "SemanticVersion: " version); print; next }
   { print }
 ' "$template_tmp" > "$tmp_updated"
 mv "$tmp_updated" "$template_tmp"
 
-s3_prefix_publish="${s3_prefix_base}/latest/amd64"
+s3_prefix_publish="${s3_prefix_base}/${dev_version}/amd64"
 packaged_path="$root/packaged-dev-amd64.yaml"
 
 SAM_CLI_TELEMETRY=0 \
