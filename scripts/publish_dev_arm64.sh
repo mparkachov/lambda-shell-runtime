@@ -28,7 +28,7 @@ S3_BUCKET=${DEV_S3_BUCKET:-$bucket_name}
 export S3_BUCKET
 
 template_src="$root/template-arm64.yaml"
-template_tmp=$(mktemp)
+template_tmp=$(mktemp "$root/.tmp-template-arm64.XXXXXX.yaml")
 trap 'rm -f "$template_tmp"' EXIT
 cp "$template_src" "$template_tmp"
 
