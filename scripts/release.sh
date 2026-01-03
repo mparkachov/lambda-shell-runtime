@@ -131,9 +131,9 @@ update_wrapper_template() {
   mv "$tmp_template" "$path"
 }
 
+tag_exists=false
 if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
-  printf '%s\n' "Tag $version already exists; skipping release."
-  exit 0
+  tag_exists=true
 fi
 
 for arch in arm64 amd64; do
@@ -173,25 +173,18 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 if ! git diff --quiet HEAD -- "$template_wrapper" "$template_arm64" "$template_amd64"; then
-  if ! git config user.name >/dev/null 2>&1; then
+  git_name=$(git config user.name 2>/dev/null || true)
+  git_email=$(git config user.email 2>/dev/null || true)
+  if [ -z "$git_name" ]; then
     git config user.name "github-actions[bot]"
   fi
-  if ! git config user.email >/dev/null 2>&1; then
+  if [ -z "$git_email" ]; then
     git config user.email "github-actions[bot]@users.noreply.github.com"
   fi
   git add "$template_wrapper" "$template_arm64" "$template_amd64"
   git commit -m "Release $version"
   git push origin "$current_branch"
 fi
-
-git tag -a "$version" -m "Release $version"
-git push origin "$version"
-
-gh release create "$version" \
-  "dist/lambda-shell-runtime-arm64-$version.zip" \
-  "dist/lambda-shell-runtime-amd64-$version.zip" \
-  --title "$version" \
-  --generate-notes
 
 publish_template() {
   arch=$1
@@ -211,3 +204,17 @@ publish_template() {
 publish_template "arm64" "$template_arm64"
 publish_template "amd64" "$template_amd64"
 publish_template "wrapper" "$template_wrapper"
+
+if [ "$tag_exists" = "true" ]; then
+  printf '%s\n' "Tag $version already exists; skipping tag and GitHub release."
+  exit 0
+fi
+
+git tag -a "$version" -m "Release $version"
+git push origin "$version"
+
+gh release create "$version" \
+  "dist/lambda-shell-runtime-arm64-$version.zip" \
+  "dist/lambda-shell-runtime-amd64-$version.zip" \
+  --title "$version" \
+  --generate-notes
