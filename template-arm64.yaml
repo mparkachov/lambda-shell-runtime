@@ -12,7 +12,7 @@ Metadata:
     LicenseUrl: LICENSE
     ReadmeUrl: SAR_README.md
     Labels: [lambda, runtime, layer, shell, provided-al2023, arm64, awscli]
-    SemanticVersion: 2.32.26
+    SemanticVersion: 2.32.28
 
 Resources:
   LambdaShellRuntimeLayerArm64:
