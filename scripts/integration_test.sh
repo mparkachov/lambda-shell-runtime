@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-event="$root/tests/integration/event.json"
+event="$root/spec/data/event.json"
 
 host_arch() {
   arch=$(uname -m 2>/dev/null || true)
