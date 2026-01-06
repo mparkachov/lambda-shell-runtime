@@ -17,12 +17,44 @@ host_arch() {
 
 wait_for_file() {
   file=$1
-  waits=200
+  waits=${2:-200}
   while [ ! -s "$file" ] && [ "$waits" -gt 0 ]; do
     sleep 0.1
     waits=$((waits - 1))
   done
   [ -s "$file" ]
+}
+
+ensure_image() {
+  image=$1
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    if ! docker pull "$image" >/dev/null 2>&1; then
+      printf '%s\n' "Failed to pull image: $image" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+container_running() {
+  docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null | grep -q true
+}
+
+wait_for_container_port() {
+  container=$1
+  port=$2
+  waits=${3:-200}
+  while [ "$waits" -gt 0 ]; do
+    if docker exec "$container" sh -c "if command -v ncat >/dev/null 2>&1; then ncat -z 127.0.0.1 $port; elif command -v nc >/dev/null 2>&1; then nc -z 127.0.0.1 $port; else exit 1; fi" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ! container_running "$container"; then
+      return 1
+    fi
+    sleep 0.2
+    waits=$((waits - 1))
+  done
+  return 1
 }
 
 arch=${ARCH:-}
@@ -137,7 +169,10 @@ template=$(mktemp)
 streaming_dir=""
 streaming_code_dir=""
 streaming_request=""
+streaming_next_request=""
 streaming_request_clean=""
+streaming_api_log=""
+streaming_runtime_log=""
 streaming_network=""
 streaming_api_container=""
 streaming_runtime_container=""
@@ -160,6 +195,12 @@ cleanup() {
   fi
   if [ -n "$streaming_request_clean" ]; then
     rm -f "$streaming_request_clean"
+  fi
+  if [ -n "$streaming_api_log" ]; then
+    rm -f "$streaming_api_log"
+  fi
+  if [ -n "$streaming_runtime_log" ]; then
+    rm -f "$streaming_runtime_log"
   fi
 }
 trap cleanup EXIT
@@ -224,9 +265,12 @@ TEMPLATE
 
 run_streaming() {
   platform="linux/$arch"
+  api_image="public.ecr.aws/amazonlinux/amazonlinux:2023"
+  runtime_image="public.ecr.aws/lambda/provided:al2023"
   streaming_dir=$(mktemp -d)
   streaming_code_dir=$(mktemp -d)
   streaming_request="$streaming_dir/response_request.txt"
+  streaming_next_request="$streaming_dir/next_request.txt"
   streaming_event="$streaming_dir/event.json"
   streaming_script="$streaming_dir/runtime_api.sh"
   streaming_request_id="streaming-test-id"
@@ -245,7 +289,7 @@ exec /opt/bootstrap
 BOOT
   chmod +x "$streaming_code_dir/function.sh" "$streaming_code_dir/bootstrap"
 
-  cat <<'API' > "$streaming_script"
+cat <<'API' > "$streaming_script"
 #!/bin/sh
 set -eu
 
@@ -254,45 +298,135 @@ event_file=${EVENT_FILE:-/data/event.json}
 next_file=${NEXT_FILE:-/data/next_request.txt}
 response_file=${RESPONSE_FILE:-/data/response_request.txt}
 request_id=${REQUEST_ID:-streaming-test-id}
+handler=${HANDLER_FILE:-/data/handle_request.sh}
+log_file=${LOG_FILE:-/data/api.log}
 
 event=$(cat "$event_file")
 length=$(printf '%s' "$event" | wc -c | tr -d ' ')
 
-{
-  printf 'HTTP/1.1 200 OK\r\n'
-  printf 'Lambda-Runtime-Aws-Request-Id: %s\r\n' "$request_id"
-  printf 'Lambda-Runtime-Deadline-Ms: 0\r\n'
-  printf 'Lambda-Runtime-Function-Response-Mode: streaming\r\n'
-  printf 'Content-Type: application/json\r\n'
-  printf 'Content-Length: %s\r\n' "$length"
-  printf 'Connection: close\r\n'
-  printf '\r\n'
-  printf '%s' "$event"
-} | nc -l -p "$port" > "$next_file"
+cat <<'HANDLER' > "$handler"
+#!/bin/sh
+set -eu
 
-{
-  printf 'HTTP/1.1 202 Accepted\r\n'
-  printf 'Content-Length: 0\r\n'
-  printf 'Connection: close\r\n'
-  printf '\r\n'
-} | nc -l -p "$port" > "$response_file"
+request_line=""
+if IFS= read -r request_line; then
+  :
+fi
+clean_request_line=$(printf '%s' "$request_line" | tr -d '\r')
+if [ -z "$clean_request_line" ]; then
+  exit 0
+fi
+
+printf '%s\n' "$clean_request_line" >> "$LOG_FILE"
+
+path=$(printf '%s' "$clean_request_line" | awk '{print $2}')
+target=""
+case "$path" in
+  /2018-06-01/runtime/invocation/next)
+    target="$NEXT_FILE"
+    ;;
+  /2018-06-01/runtime/invocation/*/response)
+    target="$RESPONSE_FILE"
+    ;;
+  *)
+    target="$RESPONSE_FILE"
+    ;;
+esac
+
+printf '%s\n' "$clean_request_line" > "$target"
+while IFS= read -r line; do
+  clean_line=$(printf '%s' "$line" | tr -d '\r')
+  printf '%s\n' "$clean_line" >> "$target"
+  [ -z "$clean_line" ] && break
+done
+
+case "$path" in
+  /2018-06-01/runtime/invocation/next)
+    {
+      printf 'HTTP/1.1 200 OK\r\n'
+      printf 'Lambda-Runtime-Aws-Request-Id: %s\r\n' "$REQUEST_ID"
+      printf 'Lambda-Runtime-Deadline-Ms: 0\r\n'
+      printf 'Lambda-Runtime-Function-Response-Mode: streaming\r\n'
+      printf 'Content-Type: application/json\r\n'
+      printf 'Content-Length: %s\r\n' "$EVENT_LENGTH"
+      printf 'Connection: close\r\n'
+      printf '\r\n'
+      printf '%s' "$EVENT_PAYLOAD"
+    }
+    ;;
+  *)
+    {
+      printf 'HTTP/1.1 202 Accepted\r\n'
+      printf 'Content-Length: 0\r\n'
+      printf 'Connection: close\r\n'
+      printf '\r\n'
+    }
+    ;;
+esac
+
+case "$path" in
+  /2018-06-01/runtime/invocation/next)
+    exit 0
+    ;;
+esac
+
+while IFS= read -r line || [ -n "$line" ]; do
+  clean_line=$(printf '%s' "$line" | tr -d '\r')
+  printf '%s\n' "$clean_line" >> "$target"
+done
+HANDLER
+chmod +x "$handler"
+
+if command -v ncat >/dev/null 2>&1; then
+  NCHANDLER=$(command -v ncat)
+elif command -v nc >/dev/null 2>&1; then
+  NCHANDLER=$(command -v nc)
+else
+  printf '%s\n' "ncat/nc not available" >&2
+  exit 1
+fi
+
+export NEXT_FILE="$next_file"
+export RESPONSE_FILE="$response_file"
+export REQUEST_ID="$request_id"
+export EVENT_PAYLOAD="$event"
+export EVENT_LENGTH="$length"
+export LOG_FILE="$log_file"
+
+while :; do
+  "$NCHANDLER" -l -p "$port" -c "$handler"
+done
 API
   chmod +x "$streaming_script"
 
   streaming_network="lambda-shell-runtime-streaming-$arch-$$"
   streaming_api_container="lambda-shell-runtime-streaming-api-$$"
   streaming_runtime_container="lambda-shell-runtime-streaming-runtime-$$"
+  streaming_api_log=$(mktemp)
+  streaming_runtime_log=$(mktemp)
+
+  ensure_image "$api_image"
+  ensure_image "$runtime_image"
 
   docker network create "$streaming_network" >/dev/null
-  docker run -d --name "$streaming_api_container" \
+  if ! docker run -d --name "$streaming_api_container" \
     --network "$streaming_network" \
     --platform "$platform" \
     -v "$streaming_dir:/data" \
-    busybox sh /data/runtime_api.sh >/dev/null
+    "$api_image" sh -c \
+    'dnf -y install nmap-ncat >/dev/null 2>&1 || { echo "Failed to install nmap-ncat" >&2; exit 1; }; sh /data/runtime_api.sh' \
+    >"$streaming_api_log" 2>&1; then
+    cat "$streaming_api_log" >&2
+    exit 1
+  fi
 
-  sleep 0.2
+  if ! wait_for_container_port "$streaming_api_container" 9001 600; then
+    docker logs "$streaming_api_container" >&2 || true
+    printf '%s\n' "Streaming API container did not become ready" >&2
+    exit 1
+  fi
 
-  docker run -d --name "$streaming_runtime_container" \
+  if ! docker run -d --name "$streaming_runtime_container" \
     --network "$streaming_network" \
     --platform "$platform" \
     -v "$layer_root:/opt:ro" \
@@ -301,32 +435,65 @@ API
     -e _HANDLER="function.handler" \
     -e LAMBDA_TASK_ROOT="/var/task" \
     --entrypoint /bin/sh \
-    public.ecr.aws/lambda/provided:al2023 \
-    -c 'if ! rpm -q curl-minimal >/dev/null 2>&1; then echo "curl-minimal not installed" >&2; exit 1; fi; curl --version >&2; exec /opt/bootstrap' >/dev/null
+    "$runtime_image" \
+    -c 'if ! rpm -q curl-minimal >/dev/null 2>&1; then echo "curl-minimal not installed" >&2; exit 1; fi; exec /opt/bootstrap' \
+    >"$streaming_runtime_log" 2>&1; then
+    cat "$streaming_runtime_log" >&2
+    exit 1
+  fi
 
-  if ! wait_for_file "$streaming_request"; then
+  if ! wait_for_file "$streaming_request" 600; then
     docker logs "$streaming_runtime_container" >&2 || true
+    docker logs "$streaming_api_container" >&2 || true
+    docker inspect -f 'runtime status: {{.State.Status}} exit={{.State.ExitCode}}' "$streaming_runtime_container" >&2 2>/dev/null || true
+    docker inspect -f 'api status: {{.State.Status}} exit={{.State.ExitCode}}' "$streaming_api_container" >&2 2>/dev/null || true
+    if [ -f "$streaming_next_request" ]; then
+      printf '%s\n' "Captured next request:" >&2
+      tr -d '\r' < "$streaming_next_request" >&2 || true
+    fi
+    if [ -f "$streaming_dir/api.log" ]; then
+      printf '%s\n' "API request log:" >&2
+      cat "$streaming_dir/api.log" >&2 || true
+    fi
     printf '%s\n' "Streaming response request was not captured" >&2
     exit 1
   fi
 
   streaming_request_clean=$(mktemp)
-  tr -d '\r' < "$streaming_request" > "$streaming_request_clean"
+  {
+    if [ -f "$streaming_request" ]; then
+      cat "$streaming_request"
+    fi
+    if [ -f "$streaming_next_request" ]; then
+      cat "$streaming_next_request"
+    fi
+  } | tr -d '\r' > "$streaming_request_clean"
 
-  if ! grep -F "POST /2018-06-01/runtime/invocation/${streaming_request_id}/response" "$streaming_request_clean" >/dev/null 2>&1; then
-    printf '%s\n' "Streaming response used unexpected endpoint" >&2
+  if ! grep -F "/2018-06-01/runtime/invocation/${streaming_request_id}/response" "$streaming_request_clean" >/dev/null 2>&1; then
+    request_line=$(head -n 1 "$streaming_request_clean" || true)
+    printf '%s\n' "Streaming response used unexpected endpoint: $request_line" >&2
+    printf '%s\n' "Captured requests:" >&2
+    cat "$streaming_request_clean" >&2 || true
+    docker logs "$streaming_runtime_container" >&2 || true
+    docker logs "$streaming_api_container" >&2 || true
     exit 1
   fi
   if ! grep -i -F "Lambda-Runtime-Function-Response-Mode: streaming" "$streaming_request_clean" >/dev/null 2>&1; then
     printf '%s\n' "Streaming response header missing response mode" >&2
+    printf '%s\n' "Captured requests:" >&2
+    cat "$streaming_request_clean" >&2 || true
     exit 1
   fi
   if ! grep -i -F "Trailer: Lambda-Runtime-Function-Error-Type, Lambda-Runtime-Function-Error-Body" "$streaming_request_clean" >/dev/null 2>&1; then
     printf '%s\n' "Streaming response header missing error trailers" >&2
+    printf '%s\n' "Captured requests:" >&2
+    cat "$streaming_request_clean" >&2 || true
     exit 1
   fi
   if ! grep -F "$streaming_payload" "$streaming_request_clean" >/dev/null 2>&1; then
     printf '%s\n' "Streaming response payload not captured" >&2
+    printf '%s\n' "Captured requests:" >&2
+    cat "$streaming_request_clean" >&2 || true
     exit 1
   fi
 }
