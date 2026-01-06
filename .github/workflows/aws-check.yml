@@ -24,7 +24,7 @@ jobs:
         env:
           ENV: dev
           AWS_CHECK_ARCHES: amd64
-          S3_BUCKET: ${{ vars.S3_BUCKET_DEV }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
         run: make aws-check
 
       - name: Run AWS checks (prod)

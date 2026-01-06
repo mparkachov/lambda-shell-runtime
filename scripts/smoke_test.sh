@@ -31,7 +31,13 @@ layer_root="$root/layer/opt"
 if [ ! -x "$layer_root/bootstrap" ] || \
    [ ! -x "$layer_root/bin/aws" ] || \
    [ ! -x "$layer_root/bin/jq" ]; then
-  ARCH="$arch" "$root/scripts/build_layer.sh"
+  build_log=$(mktemp)
+  if ! ARCH="$arch" "$root/scripts/build_layer.sh" >"$build_log" 2>&1; then
+    cat "$build_log" >&2 || true
+    rm -f "$build_log"
+    exit 1
+  fi
+  rm -f "$build_log"
 fi
 
 "$layer_root/bin/aws" --version

@@ -84,9 +84,9 @@ Override any of the defaults by exporting:
 - `ENV` (`prod` or `dev`, default: `prod`)
 - `LSR_AWS_REGION`
 - `LSR_BUCKET_NAME` (prod bucket)
-- `LSR_BUCKET_NAME_DEV` (dev bucket)
+- `LSR_BUCKET_NAME_DEV` (dev bucket; defaults to the prod bucket)
 - `LSR_STACK_NAME` (prod setup stack)
-- `LSR_STACK_NAME_DEV` (dev setup stack)
+- `LSR_STACK_NAME_DEV` (dev setup stack; defaults to the prod stack)
 - `LSR_SAR_APP_BASE` (prod SAR app base)
 - `LSR_SAR_APP_BASE_DEV` (dev SAR app base)
 - `LSR_SAR_VERSION_DEV` (dev SAR version, default `0.0.0`)
@@ -128,54 +128,44 @@ make delete-release
 Note: SAR application versions are immutable. Deleting a GitHub release/tag does not remove the SAR
 version that was already published.
 
-## Dev SAR publishing (arm64/amd64)
+## Dev SAR publishing (amd64 only)
 
-For fast iteration without touching the stable SAR apps, use the dev-only apps:
-
-```sh
-ENV=dev make publish-sar ARCH=arm64
-```
+For fast iteration without touching the stable SAR apps, use the dev-only app (amd64 only). When `ENV=dev` and `ARCH` is not set, the SAR scripts default to `amd64`.
 
 ```sh
 ENV=dev make publish-sar ARCH=amd64
 ```
 
 Aliases:
-- `make publish-dev-arm64`
 - `make publish-dev-amd64`
 
 Defaults:
 - SAR app base: `lambda-shell-runtime-dev` (override with `LSR_SAR_APP_BASE_DEV`)
-- SAR app name: `<base>-arm64` / `<base>-amd64` (override with `LSR_SAR_APP_NAME_ARM64` / `LSR_SAR_APP_NAME_AMD64`)
-- Layer name: defaults to the SAR app name (override with `LSR_LAYER_NAME_ARM64` / `LSR_LAYER_NAME_AMD64`)
-- S3 bucket: `lambda-shell-runtime-dev` (override with `LSR_BUCKET_NAME_DEV`)
-- Dev version: `0.0.0` (override with `LSR_SAR_VERSION_DEV` or `LSR_SAR_VERSION`)
+- SAR app name: `<base>-amd64` (override with `LSR_SAR_APP_NAME_AMD64`)
+- Layer name: defaults to the SAR app name (override with `LSR_LAYER_NAME_AMD64`)
+- S3 bucket: `lambda-shell-runtime` (defaults to the prod bucket; override with `LSR_BUCKET_NAME_DEV` or `S3_BUCKET`)
+- Dev version: `0.0.0` (override with `LSR_SAR_VERSION_DEV`)
 - S3 prefix: `LSR_S3_PREFIX` / `S3_PREFIX` (dev publishes under `S3_PREFIX/0.0.0/<arch>` by default)
 
-This publishes only the selected dev SAR application and skips the wrapper/stable apps.
+This publishes only the dev amd64 SAR application and skips the wrapper/stable apps. Dev arm64 is intentionally not published or checked.
 
-To delete the dev SAR apps (so you can republish the same version), run:
+To delete the dev SAR app (so you can republish the same version), run:
 
 ```sh
-ENV=dev make delete-sar ARCH=arm64
 ENV=dev make delete-sar ARCH=amd64
 ```
 
 Aliases:
-- `make delete-release-arm64`
 - `make delete-release-amd64`
-- `make delete-dev-arm64`
 - `make delete-dev-amd64`
 
-To deploy the dev SAR apps into your account (CloudFormation stacks), run:
+To deploy the dev SAR app into your account (CloudFormation stacks), run:
 
 ```sh
-ENV=dev make deploy-sar ARCH=arm64
 ENV=dev make deploy-sar ARCH=amd64
 ```
 
 Aliases:
-- `make deploy-dev-arm64`
 - `make deploy-dev-amd64`
 
 Local requirements:
@@ -268,7 +258,7 @@ and then runs `sam publish` to create the first SAR version if needed.
 make aws-setup
 ```
 
-To create only the dev bucket and policy (no SAR publishing), use:
+To apply the bucket policy without SAR publishing, use:
 
 ```sh
 ENV=dev SKIP_SAR_PUBLISH=1 make aws-setup
@@ -287,10 +277,12 @@ Options:
 - `S3_PREFIX` (optional; defaults to `sar`)
 
 Dev options:
-- `LSR_BUCKET_NAME_DEV` (default: `lambda-shell-runtime-dev`)
-- `LSR_STACK_NAME_DEV` (default: `lambda-shell-runtime-dev-setup`)
+- `LSR_BUCKET_NAME_DEV` (default: `lambda-shell-runtime`)
+- `LSR_STACK_NAME_DEV` (default: `lambda-shell-runtime-setup`)
 - `LSR_SAR_APP_BASE_DEV` (default: `lambda-shell-runtime-dev`)
 - `LSR_SAR_VERSION_DEV` (default: `0.0.0`)
+
+With the defaults above, `ENV=dev` reuses the prod bucket and setup stack; only the SAR app names and version differ.
 
 Behavior:
 - If the bucket already exists and is accessible, the stack skips bucket creation to avoid failure.
@@ -301,7 +293,7 @@ Behavior:
 
 ## GitHub Actions AWS check
 
-The manual workflow `.github/workflows/aws-check.yml` validates GitHub Actions access to AWS for both dev and prod. It runs `make aws-check`, which you can also execute locally. Set `ENV` and `S3_BUCKET` (or `S3_BUCKET_DEV`) to target a specific environment, and use `AWS_CHECK_ARCHES` to limit checks to specific architectures.
+The manual workflow `.github/workflows/aws-check.yml` validates GitHub Actions access to AWS for both dev and prod. It runs `make aws-check`, which you can also execute locally. Set `ENV` and `S3_BUCKET` to target a specific environment, and use `AWS_CHECK_ARCHES` to limit checks to specific architectures (dev defaults to amd64 only).
 
 ## CI IAM policy (restricted)
 
@@ -311,7 +303,7 @@ To remove `AdministratorAccess` from the GitHub Actions role, attach a least-pri
 - `make aws-check` (permission validation)
 
 Create an IAM policy in the AWS console (IAM → Policies → Create policy → JSON) using the template below.
-Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, and `<S3_BUCKET_DEV>` to match your setup.
+Replace `<ACCOUNT_ID>`, `<REGION>`, and `<S3_BUCKET>` to match your setup.
 `serverlessrepo:CreateApplication` does not support resource-level scoping, so the SAR block uses `Resource: "*"`, with region restriction applied.
 
 ```json
@@ -389,10 +381,7 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, and `<S3_BUCKET_DEV>` to
         "s3:GetBucketLocation",
         "s3:ListBucketMultipartUploads"
       ],
-      "Resource": [
-        "arn:aws:s3:::<S3_BUCKET_PROD>",
-        "arn:aws:s3:::<S3_BUCKET_DEV>"
-      ]
+      "Resource": "arn:aws:s3:::<S3_BUCKET>"
     },
     {
       "Sid": "S3PackagingBucketsObjects",
@@ -404,10 +393,7 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, `<S3_BUCKET_PROD>`, and `<S3_BUCKET_DEV>` to
         "s3:AbortMultipartUpload",
         "s3:ListMultipartUploadParts"
       ],
-      "Resource": [
-        "arn:aws:s3:::<S3_BUCKET_PROD>/*",
-        "arn:aws:s3:::<S3_BUCKET_DEV>/*"
-      ]
+      "Resource": "arn:aws:s3:::<S3_BUCKET>/*"
     },
     {
       "Sid": "SarChangesetRead",
@@ -426,7 +412,7 @@ After creating the policy:
 1. IAM → Roles → `GitHubActionsLambdaShellRuntime` → Attach policies → attach the new policy.
 2. Remove `AdministratorAccess` from the role.
 3. If you use permission boundaries or SCPs, ensure they do not deny `s3:GetObject` for `awsserverlessrepo-changesets-*`.
-4. In GitHub repo variables, set `AWS_REGION`, `S3_BUCKET`, and (optionally) `S3_BUCKET_DEV`.
+4. In GitHub repo variables, set `AWS_REGION` and `S3_BUCKET`.
 
 ### One-time AWS setup (admin)
 

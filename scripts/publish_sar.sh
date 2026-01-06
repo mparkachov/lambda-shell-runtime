@@ -16,6 +16,9 @@ require_cmd sam
 require_cmd make
 
 arch=${ARCH:-${1:-}}
+if [ -z "$arch" ] && [ "$LSR_ENV" = "dev" ]; then
+  arch=amd64
+fi
 if [ "$arch" = "all" ]; then
   ARCH=arm64 "$0"
   ARCH=amd64 "$0"

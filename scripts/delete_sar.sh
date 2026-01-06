@@ -39,6 +39,9 @@ resolve_app_id() {
 }
 
 arch=${ARCH:-${1:-}}
+if [ -z "$arch" ] && [ "$LSR_ENV" = "dev" ]; then
+  arch=amd64
+fi
 case "$arch" in
   arm64|amd64) ;;
   *)
