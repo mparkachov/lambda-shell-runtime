@@ -15,10 +15,9 @@ event_file=$(mktemp)
 response_file=$(mktemp)
 endpoint_file=$(mktemp)
 header_file=$(mktemp)
-port_file=$(mktemp)
 log_file=$(mktemp)
+mock_bin=$(mktemp -d)
 
-server_pid=""
 bootstrap_pid=""
 
 cleanup() {
@@ -26,14 +25,12 @@ cleanup() {
     kill "$bootstrap_pid" >/dev/null 2>&1 || true
     wait "$bootstrap_pid" >/dev/null 2>&1 || true
   fi
-  if [ -n "$server_pid" ]; then
-    kill "$server_pid" >/dev/null 2>&1 || true
-    wait "$server_pid" >/dev/null 2>&1 || true
-  fi
-  rm -f "$event_file" "$response_file" "$endpoint_file" "$header_file" "$port_file" "$log_file"
-  rm -rf "$workdir"
+  rm -f "$event_file" "$response_file" "$endpoint_file" "$header_file" "$log_file"
+  rm -rf "$workdir" "$mock_bin"
 }
 trap cleanup EXIT
+
+ln -s "$root/scripts/mock_curl.sh" "$mock_bin/curl"
 
 wait_for_file() {
   file=$1
@@ -45,73 +42,70 @@ wait_for_file() {
   [ -s "$file" ]
 }
 
+json_get_string() {
+  file=$1
+  key=$2
+  sed -n "s/.*\"$key\":\"\([^\"]*\)\".*/\1/p" "$file" | head -n1
+}
+
+json_array_items() {
+  file=$1
+  key=$2
+  raw=$(sed -n "s/.*\"$key\":\[\(.*\)\].*/\1/p" "$file" | head -n1)
+  raw=$(printf '%s' "$raw" | tr -d '\r')
+  if [ -z "$raw" ]; then
+    return 0
+  fi
+  printf '%s' "$raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//' | sed 's/","/\n/g'
+}
+
 assert_json_field_equals() {
   file=$1
   key=$2
   expected=$3
-  python3 - "$file" "$key" "$expected" <<'PY'
-import json
-import sys
-
-path, key, expected = sys.argv[1:4]
-with open(path, "r", encoding="utf-8") as fh:
-    data = json.load(fh)
-value = data.get(key, "")
-if value != expected:
-    sys.exit(f"{key} expected {expected!r}, got {value!r}")
-PY
+  value=$(json_get_string "$file" "$key")
+  if [ "$value" != "$expected" ]; then
+    printf '%s\n' "$key expected $expected, got $value" >&2
+    exit 1
+  fi
 }
 
 assert_json_field_contains() {
   file=$1
   key=$2
   expected=$3
-  python3 - "$file" "$key" "$expected" <<'PY'
-import json
-import sys
-
-path, key, expected = sys.argv[1:4]
-with open(path, "r", encoding="utf-8") as fh:
-    data = json.load(fh)
-value = str(data.get(key, ""))
-if expected not in value:
-    sys.exit(f"{key} expected to contain {expected!r}, got {value!r}")
-PY
+  value=$(json_get_string "$file" "$key")
+  case "$value" in
+    *"$expected"*) return 0 ;;
+  esac
+  printf '%s\n' "$key expected to contain $expected, got $value" >&2
+  exit 1
 }
 
 assert_json_array_length() {
   file=$1
   key=$2
   expected=$3
-  python3 - "$file" "$key" "$expected" <<'PY'
-import json
-import sys
-
-path, key, expected = sys.argv[1:4]
-expected = int(expected)
-with open(path, "r", encoding="utf-8") as fh:
-    data = json.load(fh)
-value = data.get(key)
-if not isinstance(value, list) or len(value) != expected:
-    sys.exit(f"{key} expected length {expected!r}, got {value!r}")
-PY
+  items=$(json_array_items "$file" "$key" || true)
+  count=0
+  if [ -n "$items" ]; then
+    count=$(printf '%s\n' "$items" | sed '/^$/d' | wc -l | tr -d ' ')
+  fi
+  if [ "$count" -ne "$expected" ]; then
+    printf '%s\n' "$key expected length $expected, got $count" >&2
+    exit 1
+  fi
 }
 
 assert_json_array_contains() {
   file=$1
   key=$2
   expected=$3
-  python3 - "$file" "$key" "$expected" <<'PY'
-import json
-import sys
-
-path, key, expected = sys.argv[1:4]
-with open(path, "r", encoding="utf-8") as fh:
-    data = json.load(fh)
-value = data.get(key)
-if not isinstance(value, list) or expected not in value:
-    sys.exit(f"{key} expected to contain {expected!r}, got {value!r}")
-PY
+  items=$(json_array_items "$file" "$key" || true)
+  if ! printf '%s\n' "$items" | grep -F "$expected" >/dev/null 2>&1; then
+    printf '%s\n' "$key expected to contain $expected" >&2
+    exit 1
+  fi
 }
 
 assert_file_equals() {
@@ -151,123 +145,25 @@ get_exit_status() {
   return 0
 }
 
-start_init_server() {
-  python3 - "$response_file" "$endpoint_file" "$header_file" "$port_file" <<'PY' &
-import http.server
-import socketserver
-import threading
-import sys
-
-response_path, endpoint_path, header_path, port_path = sys.argv[1:5]
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        if self.path == "/2018-06-01/runtime/init/error":
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length) if length else b""
-            with open(response_path, "wb") as fh:
-                fh.write(body)
-            with open(endpoint_path, "w", encoding="utf-8") as fh:
-                fh.write(self.path)
-            with open(header_path, "w", encoding="utf-8") as fh:
-                fh.write(self.headers.get("Lambda-Runtime-Function-Error-Type", ""))
-            self.send_response(202)
-            self.end_headers()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        return
-
-with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
-    port = httpd.server_address[1]
-    with open(port_path, "w", encoding="utf-8") as fh:
-        fh.write(str(port))
-    httpd.serve_forever()
-PY
-  server_pid=$!
-}
-
-start_invoke_server() {
-  response_code=${1:-202}
-  error_code=${2:-202}
-  python3 - "$event_file" "$response_file" "$endpoint_file" "$header_file" "$port_file" "$response_code" "$error_code" <<'PY' &
-import http.server
-import socketserver
-import threading
-import sys
-
-event_path, response_path, endpoint_path, header_path, port_path, response_code, error_code = sys.argv[1:8]
-response_code = int(response_code)
-error_code = int(error_code)
-with open(event_path, "rb") as fh:
-    event_body = fh.read()
-
-invocation_id = "test-invocation-id"
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/2018-06-01/runtime/invocation/next":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Lambda-Runtime-Aws-Request-Id", invocation_id)
-            self.end_headers()
-            self.wfile.write(event_body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self):
-        if self.path == f"/2018-06-01/runtime/invocation/{invocation_id}/response":
-            status = response_code
-        elif self.path == f"/2018-06-01/runtime/invocation/{invocation_id}/error":
-            status = error_code
-        else:
-            status = None
-        if status is not None:
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length) if length else b""
-            with open(response_path, "wb") as fh:
-                fh.write(body)
-            with open(endpoint_path, "w", encoding="utf-8") as fh:
-                fh.write(self.path)
-            if self.path.endswith("/error"):
-                with open(header_path, "w", encoding="utf-8") as fh:
-                    fh.write(self.headers.get("Lambda-Runtime-Function-Error-Type", ""))
-            self.send_response(status)
-            self.end_headers()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        return
-
-with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
-    port = httpd.server_address[1]
-    with open(port_path, "w", encoding="utf-8") as fh:
-        fh.write(str(port))
-    httpd.serve_forever()
-PY
-  server_pid=$!
-}
-
 run_bootstrap() {
-  port=$(cat "$port_file")
-  AWS_LAMBDA_RUNTIME_API="127.0.0.1:${port}" \
+  AWS_LAMBDA_RUNTIME_API="mock" \
   LAMBDA_TASK_ROOT="$workdir" \
   _HANDLER="$1" \
+  PATH="$mock_bin:$PATH" \
+  MOCK_EVENT_FILE="$event_file" \
+  MOCK_RESPONSE_FILE="$response_file" \
+  MOCK_ENDPOINT_FILE="$endpoint_file" \
+  MOCK_ERROR_TYPE_FILE="$header_file" \
+  MOCK_REQUEST_ID="test-invocation-id" \
+  MOCK_RESPONSE_CODE="${MOCK_RESPONSE_CODE:-}" \
+  MOCK_ERROR_CODE="${MOCK_ERROR_CODE:-}" \
+  MOCK_INIT_ERROR_CODE="${MOCK_INIT_ERROR_CODE:-}" \
   "$bootstrap" >"$log_file" 2>&1 &
   bootstrap_pid=$!
 }
 
 case "$case_name" in
   missing-handler-file)
-    start_init_server
-    wait_for_file "$port_file"
     run_bootstrap "missing.handler" || true
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -282,11 +178,9 @@ case "$case_name" in
     assert_json_array_length "$response_file" "stackTrace" "0"
     ;;
   missing-handler-function)
-    cat <<'SH' > "$workdir/function.sh"
+    cat <<'HANDLER' > "$workdir/function.sh"
 not_handler() { :; }
-SH
-    start_init_server
-    wait_for_file "$port_file"
+HANDLER
     run_bootstrap "function.handler" || true
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -303,8 +197,6 @@ SH
   unreadable-handler)
     printf '%s\n' "#!/bin/sh" > "$workdir/script"
     chmod 000 "$workdir/script"
-    start_init_server
-    wait_for_file "$port_file"
     run_bootstrap "script" || true
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -319,14 +211,12 @@ SH
     assert_json_array_length "$response_file" "stackTrace" "0"
     ;;
   handler-exit)
-    cat <<'SH' > "$workdir/function.sh"
+    cat <<'HANDLER' > "$workdir/function.sh"
 handler() {
   return 3
 }
-SH
+HANDLER
     printf '{"message":"fail"}' > "$event_file"
-    start_invoke_server
-    wait_for_file "$port_file"
     run_bootstrap "function.handler"
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -344,16 +234,14 @@ SH
     assert_json_array_length "$response_file" "stackTrace" "0"
     ;;
   handler-exit-stderr)
-    cat <<'SH' > "$workdir/function.sh"
+    cat <<'HANDLER' > "$workdir/function.sh"
 handler() {
   printf '%s\n' "TypeError: bad input" >&2
   printf '%s\n' "line 2" >&2
   return 3
 }
-SH
+HANDLER
     printf '{"message":"fail"}' > "$event_file"
-    start_invoke_server
-    wait_for_file "$port_file"
     run_bootstrap "function.handler"
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -371,14 +259,13 @@ SH
     assert_json_array_contains "$response_file" "stackTrace" "line 2"
     ;;
   response-post-failure)
-    cat <<'SH' > "$workdir/function.sh"
+    cat <<'HANDLER' > "$workdir/function.sh"
 handler() {
   printf '%s\n' "{\"ok\":true}"
 }
-SH
+HANDLER
     printf '{"message":"ok"}' > "$event_file"
-    start_invoke_server 500 202
-    wait_for_file "$port_file"
+    MOCK_RESPONSE_CODE=500
     run_bootstrap "function.handler"
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"
@@ -401,15 +288,14 @@ SH
     assert_log_contains "Failed to post runtime response"
     ;;
   error-post-failure)
-    cat <<'SH' > "$workdir/function.sh"
+    cat <<'HANDLER' > "$workdir/function.sh"
 handler() {
   printf '%s\n' "Error: fail" >&2
   return 2
 }
-SH
+HANDLER
     printf '{"message":"fail"}' > "$event_file"
-    start_invoke_server 202 500
-    wait_for_file "$port_file"
+    MOCK_ERROR_CODE=500
     run_bootstrap "function.handler"
     wait_for_file "$response_file"
     wait_for_file "$endpoint_file"

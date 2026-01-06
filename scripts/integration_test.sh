@@ -65,35 +65,44 @@ if [ ! -f "$layer_zip" ]; then
   exit 1
 fi
 
-python3 - "$layer_zip" <<'PY'
-import sys
-import zipfile
+entries_file=$(mktemp)
+list_file=$(mktemp)
+if ! zip -sf "$layer_zip" > "$list_file"; then
+  rm -f "$entries_file" "$list_file"
+  printf '%s\n' "Unable to read packaged layer zip: $layer_zip" >&2
+  exit 1
+fi
+awk '/^[dl-]/ {print $NF}' "$list_file" > "$entries_file"
+rm -f "$list_file"
 
-path = sys.argv[1]
-with zipfile.ZipFile(path) as zf:
-    names = zf.namelist()
-
-def has_prefix(prefix: str) -> bool:
-    return any(name.startswith(prefix) for name in names)
-
-required = []
-if "bootstrap" not in names:
-    required.append("bootstrap")
-for prefix in ("bin/", "aws-cli/", "lib/"):
-    if not has_prefix(prefix):
-        required.append(prefix)
-if any(name.startswith("opt/") for name in names):
-    raise SystemExit("unexpected opt/ prefix in packaged layer zip")
-if required:
-    raise SystemExit(f"missing expected entries in packaged layer zip: {', '.join(required)}")
-PY
+missing=""
+if ! grep -qx "bootstrap" "$entries_file"; then
+  missing="bootstrap"
+fi
+for prefix in bin/ aws-cli/ lib/; do
+  if ! grep -q "^$prefix" "$entries_file"; then
+    if [ -n "$missing" ]; then
+      missing="$missing, $prefix"
+    else
+      missing="$prefix"
+    fi
+  fi
+done
+if grep -q '^opt/' "$entries_file"; then
+  printf '%s\n' "unexpected opt/ prefix in packaged layer zip" >&2
+  exit 1
+fi
+if [ -n "$missing" ]; then
+  printf '%s\n' "missing expected entries in packaged layer zip: $missing" >&2
+  exit 1
+fi
 
 code_dir=$(mktemp -d)
 response=$(mktemp)
 log=$(mktemp)
 template=$(mktemp)
 cleanup() {
-  rm -rf "$code_dir" "$response" "$log" "$template"
+  rm -rf "$code_dir" "$response" "$log" "$template" "$entries_file" "$list_file"
 }
 trap cleanup EXIT
 

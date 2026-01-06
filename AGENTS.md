@@ -20,6 +20,7 @@ The runtime is packaged as a Lambda Layer and is intended to be consumed directl
 - Avoid abstractions, frameworks, or opinionated conventions
 - Prefer predictable, explicit, and minimal behavior
 - Make the runtime transparent and easy to audit
+- Keep tooling strictly POSIX shell; any non-POSIX tooling must be documented here
 
 ## Repository Structure
 
@@ -99,6 +100,14 @@ No additional response validation is performed.
 - `aws --version`
 - `jq --version`
 - End-to-end runtime invocation with a sample handler
+
+## Non-POSIX tooling (dev/build/test/release)
+Documented exceptions used by this repo:
+- Build/package: Docker (layer build), zip (layer packaging)
+- Test: ShellSpec (vendored test runner), AWS SAM CLI (`sam`) + Docker (integration tests)
+- Release/ops: AWS CLI (`aws`) (aws-setup/aws-check/publish/deploy/release), AWS SAM CLI (`sam`) (package/publish/release), Git (release/tag automation), curl (release checks/aws-check/deploy)
+
+Runtime host requirements (non-POSIX): `curl`, `mktemp`.
 
 ## Versioning
 - Git tags correspond to releases

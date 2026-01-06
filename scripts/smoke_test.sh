@@ -40,10 +40,9 @@ LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 
 event_file=$(mktemp)
 response_file=$(mktemp)
-port_file=$(mktemp)
 log_file=$(mktemp)
+mock_bin=$(mktemp -d)
 
-server_pid=""
 bootstrap_pid=""
 
 cleanup() {
@@ -51,85 +50,23 @@ cleanup() {
     kill "$bootstrap_pid" >/dev/null 2>&1 || true
     wait "$bootstrap_pid" >/dev/null 2>&1 || true
   fi
-  if [ -n "$server_pid" ]; then
-    kill "$server_pid" >/dev/null 2>&1 || true
-    wait "$server_pid" >/dev/null 2>&1 || true
-  fi
-  rm -f "$event_file" "$response_file" "$port_file" "$log_file"
+  rm -f "$event_file" "$response_file" "$log_file"
+  rm -rf "$mock_bin"
 }
 trap cleanup EXIT
 
+ln -s "$root/scripts/mock_curl.sh" "$mock_bin/curl"
+
 printf '{"message":"hello","value":1}' > "$event_file"
 
-python3 - "$event_file" "$response_file" "$port_file" <<'PY' &
-import http.server
-import socketserver
-import threading
-import sys
-
-event_path, response_path, port_path = sys.argv[1:4]
-with open(event_path, "rb") as fh:
-    event_body = fh.read()
-
-invocation_id = "test-invocation-id"
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/2018-06-01/runtime/invocation/next":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Lambda-Runtime-Aws-Request-Id", invocation_id)
-            self.end_headers()
-            self.wfile.write(event_body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self):
-        if self.path in (
-            f"/2018-06-01/runtime/invocation/{invocation_id}/response",
-            f"/2018-06-01/runtime/invocation/{invocation_id}/error",
-        ):
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length) if length else b""
-            with open(response_path, "wb") as fh:
-                fh.write(body)
-            self.send_response(202)
-            self.end_headers()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        return
-
-with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
-    port = httpd.server_address[1]
-    with open(port_path, "w", encoding="utf-8") as fh:
-        fh.write(str(port))
-    httpd.serve_forever()
-PY
-server_pid=$!
-
-waits=100
-while [ ! -s "$port_file" ] && [ $waits -gt 0 ]; do
-  sleep 0.1
-  waits=$((waits - 1))
-done
-
-if [ ! -s "$port_file" ]; then
-  printf '%s\n' "Mock runtime API failed to start" >&2
-  exit 1
-fi
-
-port=$(cat "$port_file")
-
-PATH="$layer_root/bin:$PATH" \
+PATH="$mock_bin:$PATH" \
 LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-AWS_LAMBDA_RUNTIME_API="127.0.0.1:${port}" \
+AWS_LAMBDA_RUNTIME_API="mock" \
 LAMBDA_TASK_ROOT="$root/examples" \
 _HANDLER="function.handler" \
+MOCK_EVENT_FILE="$event_file" \
+MOCK_RESPONSE_FILE="$response_file" \
+MOCK_REQUEST_ID="test-invocation-id" \
 "$layer_root/bootstrap" >"$log_file" 2>&1 &
 bootstrap_pid=$!
 

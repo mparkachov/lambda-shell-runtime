@@ -14,7 +14,6 @@ require_cmd() {
 
 require_cmd aws
 require_cmd curl
-require_cmd python3
 
 if [ -z "${S3_BUCKET:-}" ]; then
   printf '%s\n' "S3_BUCKET is not set." >&2
@@ -72,145 +71,101 @@ check_stack_access() {
 }
 
 extract_s3_uris() {
-  python3 - "$1" <<'PY'
-import json
-import re
-import sys
+  file=$1
+  awk '
+    BEGIN {
+      contenturi_indent = -1
+      content_indent = -1
+    }
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    function strip_quotes(s) { s = trim(s); gsub(/^[\"\047]|[\"\047]$/, "", s); return s }
+    function add_uri(uri) {
+      uri = strip_quotes(uri)
+      if (uri ~ /^s3:\/\//) {
+        uris[uri] = 1
+      }
+    }
+    function add_bucket_key(bucket, key) {
+      bucket = strip_quotes(bucket)
+      key = strip_quotes(key)
+      if (bucket != "" && key != "") {
+        uris["s3://" bucket "/" key] = 1
+      }
+    }
+    function parse_inline_map(rest,   bucket, key, n, i, part) {
+      gsub(/^[^{]*\{/, "", rest)
+      gsub(/\}[^{]*$/, "", rest)
+      n = split(rest, parts, ",")
+      for (i = 1; i <= n; i++) {
+        part = trim(parts[i])
+        if (part ~ /^Bucket:/) { sub(/^Bucket:/, "", part); bucket = trim(part) }
+        else if (part ~ /^Key:/) { sub(/^Key:/, "", part); key = trim(part) }
+        else if (part ~ /^S3Bucket:/) { sub(/^S3Bucket:/, "", part); bucket = trim(part) }
+        else if (part ~ /^S3Key:/) { sub(/^S3Key:/, "", part); key = trim(part) }
+      }
+      add_bucket_key(bucket, key)
+    }
+    function line_indent(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+    {
+      raw = $0
+      stripped = raw
+      sub(/^[[:space:]]+/, "", stripped)
+      if (stripped ~ /^#/) next
 
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as fh:
-    text = fh.read()
+      line = raw
+      while (match(line, /s3:\/\/[^[:space:]\"<>]+/)) {
+        uri = substr(line, RSTART, RLENGTH)
+        add_uri(uri)
+        line = substr(line, RSTART + RLENGTH)
+      }
 
-uris = set()
-
-def add_uri(uri: str) -> None:
-    uri = uri.strip().strip("'\"")
-    if uri.startswith("s3://"):
-        uris.add(uri)
-
-def add_bucket_key(bucket: str, key: str) -> None:
-    if not bucket or not key:
-        return
-    bucket = str(bucket).strip().strip("'\"")
-    key = str(key).strip().strip("'\"")
-    if bucket and key:
-        uris.add(f"s3://{bucket}/{key}")
-
-for uri in re.findall(r"s3://[^\\s\"']+", text):
-    add_uri(uri)
-
-def walk(obj, path):
-    if isinstance(obj, dict):
-        if "S3Bucket" in obj and "S3Key" in obj:
-            add_bucket_key(obj.get("S3Bucket"), obj.get("S3Key"))
-        if "Bucket" in obj and "Key" in obj and any(p in ("ContentUri", "Content") for p in path):
-            add_bucket_key(obj.get("Bucket"), obj.get("Key"))
-        for key, value in obj.items():
-            walk(value, path + [key])
-    elif isinstance(obj, list):
-        for item in obj:
-            walk(item, path)
-    elif isinstance(obj, str):
-        add_uri(obj)
-
-try:
-    data = json.loads(text)
-except Exception:
-    data = None
-
-if data is not None:
-    walk(data, [])
-
-content_indent = None
-content_bucket = None
-content_key = None
-contenturi_indent = None
-contenturi_bucket = None
-contenturi_key = None
-
-def parse_inline_map(line: str, key_name: str):
-    if not line.startswith(f"{key_name}:"):
-        return None, None
-    _, rest = line.split(":", 1)
-    rest = rest.strip()
-    if not (rest.startswith("{") and rest.endswith("}")):
-        return None, None
-    bucket = None
-    key = None
-    for part in rest.strip("{}").split(","):
-        part = part.strip()
-        if part.startswith("Bucket:"):
-            bucket = part.split(":", 1)[1].strip()
-        elif part.startswith("Key:"):
-            key = part.split(":", 1)[1].strip()
-        elif part.startswith("S3Bucket:"):
-            bucket = part.split(":", 1)[1].strip()
-        elif part.startswith("S3Key:"):
-            key = part.split(":", 1)[1].strip()
-    return bucket, key
-
-lines = text.splitlines()
-for raw in lines:
-    line = raw.rstrip("\n")
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        continue
-    indent = len(line) - len(line.lstrip())
-
-    if contenturi_indent is not None and indent <= contenturi_indent:
+      indent = line_indent(raw)
+      if (contenturi_indent >= 0 && indent <= contenturi_indent) {
         add_bucket_key(contenturi_bucket, contenturi_key)
-        contenturi_indent = None
-        contenturi_bucket = None
-        contenturi_key = None
-    if content_indent is not None and indent <= content_indent:
+        contenturi_indent = -1
+        contenturi_bucket = ""
+        contenturi_key = ""
+      }
+      if (content_indent >= 0 && indent <= content_indent) {
         add_bucket_key(content_bucket, content_key)
-        content_indent = None
-        content_bucket = None
-        content_key = None
+        content_indent = -1
+        content_bucket = ""
+        content_key = ""
+      }
 
-    if stripped.startswith("ContentUri:") and "s3://" in stripped:
-        add_uri(stripped.split(":", 1)[1].strip())
-        continue
+      if (stripped ~ /^ContentUri:/) {
+        rest = stripped
+        sub(/^ContentUri:/, "", rest)
+        rest = trim(rest)
+        if (rest ~ /^s3:\/\//) { add_uri(rest); next }
+        if (rest ~ /^\{.*\}$/) { parse_inline_map(rest); next }
+        if (rest == "") { contenturi_indent = indent; contenturi_bucket = ""; contenturi_key = ""; next }
+      }
 
-    bucket, key = parse_inline_map(stripped, "ContentUri")
-    if bucket or key:
-        add_bucket_key(bucket, key)
-        continue
+      if (stripped ~ /^Content:/) {
+        rest = stripped
+        sub(/^Content:/, "", rest)
+        rest = trim(rest)
+        if (rest ~ /^\{.*\}$/) { parse_inline_map(rest); next }
+        if (rest == "") { content_indent = indent; content_bucket = ""; content_key = ""; next }
+      }
 
-    bucket, key = parse_inline_map(stripped, "Content")
-    if bucket or key:
-        add_bucket_key(bucket, key)
-        continue
+      if (contenturi_indent >= 0 && indent > contenturi_indent) {
+        if (stripped ~ /^Bucket:/) { sub(/^Bucket:/, "", stripped); contenturi_bucket = trim(stripped) }
+        else if (stripped ~ /^Key:/) { sub(/^Key:/, "", stripped); contenturi_key = trim(stripped) }
+      }
 
-    if re.match(r"^ContentUri:\s*$", stripped):
-        contenturi_indent = indent
-        contenturi_bucket = None
-        contenturi_key = None
-        continue
-    if re.match(r"^Content:\s*$", stripped):
-        content_indent = indent
-        content_bucket = None
-        content_key = None
-        continue
-
-    if contenturi_indent is not None:
-        if stripped.startswith("Bucket:"):
-            contenturi_bucket = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("Key:"):
-            contenturi_key = stripped.split(":", 1)[1].strip()
-
-    if content_indent is not None:
-        if stripped.startswith("S3Bucket:"):
-            content_bucket = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("S3Key:"):
-            content_key = stripped.split(":", 1)[1].strip()
-
-add_bucket_key(contenturi_bucket, contenturi_key)
-add_bucket_key(content_bucket, content_key)
-
-for uri in sorted(uris):
-    print(uri)
-PY
+      if (content_indent >= 0 && indent > content_indent) {
+        if (stripped ~ /^S3Bucket:/) { sub(/^S3Bucket:/, "", stripped); content_bucket = trim(stripped) }
+        else if (stripped ~ /^S3Key:/) { sub(/^S3Key:/, "", stripped); content_key = trim(stripped) }
+      }
+    }
+    END {
+      add_bucket_key(contenturi_bucket, contenturi_key)
+      add_bucket_key(content_bucket, content_key)
+      for (u in uris) print u
+    }
+  ' "$file" | sort -u
 }
 
 resolve_app_id() {
