@@ -163,6 +163,14 @@ done
 
 mkdir -p "$dist_dir"
 
+for metadata_file in SAR_README.md LICENSE; do
+  if [ ! -f "$root/$metadata_file" ]; then
+    printf '%s\n' "Required metadata file not found: $root/$metadata_file" >&2
+    exit 1
+  fi
+  cp "$root/$metadata_file" "$dist_dir/$metadata_file"
+done
+
 zip_path="$dist_dir/lambda-shell-runtime-$arch.zip"
 rm -f "$zip_path"
 
