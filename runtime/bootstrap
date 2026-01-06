@@ -129,6 +129,7 @@ post_streaming_response() {
   http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
     -H "Lambda-Runtime-Function-Response-Mode: streaming" \
     -H "Trailer: Lambda-Runtime-Function-Error-Type, Lambda-Runtime-Function-Error-Body" \
+    -H "Expect:" \
     --data-binary @- "$url" < "$payload")
   curl_status=$?
   if [ "$curl_status" -ne 0 ]; then
