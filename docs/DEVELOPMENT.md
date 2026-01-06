@@ -46,6 +46,19 @@ The smoke test:
 - checks `aws --version` and `jq --version`
 - runs the `bootstrap` against a local mock Runtime API and the example handler
 
+## Tests
+
+Run ShellSpec suites via `make`:
+
+```sh
+make test-smokespec
+make test-errorspec
+make test-integration
+make test
+```
+
+`make test` runs the smoke and runtime error specs together.
+
 ## Shellcheck
 
 All shell scripts are written for POSIX `sh` and should pass `shellcheck`.

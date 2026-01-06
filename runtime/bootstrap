@@ -6,7 +6,7 @@ log() {
 }
 
 json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  printf '%s' "$1" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 header_value() {
@@ -26,28 +26,155 @@ set_invocation_env() {
   fi
 }
 
+json_stacktrace_from_file() {
+  file=$1
+  skip_lines=${2:-0}
+  count=0
+  printf '['
+  while IFS= read -r line; do
+    if [ "$skip_lines" -gt 0 ]; then
+      skip_lines=$((skip_lines - 1))
+      continue
+    fi
+    escaped=$(json_escape "$line")
+    if [ "$count" -gt 0 ]; then
+      printf ','
+    fi
+    printf '"%s"' "$escaped"
+    count=$((count + 1))
+  done < "$file"
+  printf ']'
+}
+
+build_error_payload() {
+  message=$1
+  error_type=$2
+  stack_trace=$3
+  escaped_message=$(json_escape "$message")
+  escaped_type=$(json_escape "$error_type")
+  printf '{"errorMessage":"%s","errorType":"%s","stackTrace":%s}' \
+    "$escaped_message" "$escaped_type" "$stack_trace"
+}
+
+post_runtime_error() {
+  url=$1
+  payload=$2
+  http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    -H "Lambda-Runtime-Function-Error-Type: Unhandled" \
+    --data-binary "@$payload" "$url")
+  curl_status=$?
+  if [ "$curl_status" -ne 0 ]; then
+    http_code=000
+  fi
+  case "$http_code" in
+    2??) return 0 ;;
+    *)
+      log "Failed to post runtime error to $url (HTTP $http_code)"
+      return 1
+      ;;
+  esac
+}
+
+post_runtime_response() {
+  url=$1
+  payload=$2
+  http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    --data-binary "@$payload" "$url")
+  curl_status=$?
+  if [ "$curl_status" -ne 0 ]; then
+    http_code=000
+  fi
+  case "$http_code" in
+    2??) return 0 ;;
+    *)
+      log "Failed to post runtime response to $url (HTTP $http_code)"
+      return 1
+      ;;
+  esac
+}
+
 post_init_error() {
   message=$1
   error_type=$2
   payload=$(mktemp)
-  escaped=$(json_escape "$message")
-  printf '{"errorMessage":"%s","errorType":"%s"}' "$escaped" "$error_type" > "$payload"
-  curl -sS -X POST "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/init/error" \
-    --data-binary "@$payload" >/dev/null || true
+  build_error_payload "$message" "$error_type" "[]" > "$payload"
+  if ! post_runtime_error \
+    "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/init/error" \
+    "$payload"; then
+    rm -f "$payload"
+    return 1
+  fi
   rm -f "$payload"
+  return 0
 }
 
 post_invoke_error() {
   request_id=$1
   message=$2
   error_type=$3
+  stack_trace=$4
   payload=$(mktemp)
-  escaped=$(json_escape "$message")
-  printf '{"errorMessage":"%s","errorType":"%s"}' "$escaped" "$error_type" > "$payload"
-  curl -sS -X POST \
+  build_error_payload "$message" "$error_type" "$stack_trace" > "$payload"
+  if ! post_runtime_error \
     "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/error" \
-    --data-binary "@$payload" >/dev/null || true
+    "$payload"; then
+    rm -f "$payload"
+    return 1
+  fi
   rm -f "$payload"
+  return 0
+}
+
+post_response() {
+  request_id=$1
+  response_file=$2
+  post_runtime_response \
+    "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
+    "$response_file"
+}
+
+# Capture handler stderr while streaming it to the runtime logs.
+run_with_stderr_capture() {
+  stderr_file=$1
+  shift
+  stderr_pipe=$(mktemp)
+  rm -f "$stderr_pipe"
+  mkfifo "$stderr_pipe"
+  tee "$stderr_file" < "$stderr_pipe" >&2 &
+  tee_pid=$!
+  "$@" 2> "$stderr_pipe"
+  status=$?
+  wait "$tee_pid" >/dev/null 2>&1 || true
+  rm -f "$stderr_pipe"
+  return "$status"
+}
+
+set_error_from_stderr() {
+  stderr_file=$1
+  exit_status=$2
+  error_message="Handler exited with status $exit_status"
+  error_type="Error"
+  stack_trace="[]"
+  if [ -s "$stderr_file" ]; then
+    IFS= read -r first_line < "$stderr_file" || true
+    first_line=$(printf '%s' "$first_line" | tr -d '\r')
+    if [ -n "$first_line" ]; then
+      error_message="$first_line"
+      error_type="Error"
+      case "$first_line" in
+        *:*)
+          candidate_type=${first_line%%:*}
+          candidate_message=${first_line#*:}
+          candidate_message=$(printf '%s' "$candidate_message" | sed 's/^ *//')
+          if [ -n "$candidate_type" ] && [ -n "$candidate_message" ]; then
+            error_type="$candidate_type"
+            error_message="$candidate_message"
+          fi
+          ;;
+      esac
+      stack_trace=$(json_stacktrace_from_file "$stderr_file" 1)
+    fi
+  fi
 }
 
 runtime_api=${AWS_LAMBDA_RUNTIME_API:-}
@@ -155,38 +282,54 @@ while :; do
   set_invocation_env "_X_AMZN_TRACE_ID" "$trace_id"
 
   response=$(mktemp)
+  stderr_file=$(mktemp)
   if [ "$handler_mode" = "function" ]; then
     event_data=$(cat "$body")
-    if "$handler_func" "$event_data" > "$response"; then
-      curl -sS -X POST \
-        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
-        --data-binary "@$response" >/dev/null || true
+    if run_with_stderr_capture "$stderr_file" "$handler_func" "$event_data" > "$response"; then
+      if ! post_response "$request_id" "$response"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     else
       handler_exit=$?
       log "Handler exited with status ${handler_exit}"
-      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
+      set_error_from_stderr "$stderr_file" "$handler_exit"
+      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     fi
   elif [ "$handler_mode" = "executable" ]; then
-    if "$handler_path" < "$body" > "$response"; then
-      curl -sS -X POST \
-        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
-        --data-binary "@$response" >/dev/null || true
+    if run_with_stderr_capture "$stderr_file" "$handler_path" < "$body" > "$response"; then
+      if ! post_response "$request_id" "$response"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     else
       handler_exit=$?
       log "Handler exited with status ${handler_exit}"
-      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
+      set_error_from_stderr "$stderr_file" "$handler_exit"
+      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     fi
   else
-    if sh "$handler_path" < "$body" > "$response"; then
-      curl -sS -X POST \
-        "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
-        --data-binary "@$response" >/dev/null || true
+    if run_with_stderr_capture "$stderr_file" sh "$handler_path" < "$body" > "$response"; then
+      if ! post_response "$request_id" "$response"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     else
       handler_exit=$?
       log "Handler exited with status ${handler_exit}"
-      post_invoke_error "$request_id" "Handler exited with status ${handler_exit}" "Runtime.HandlerError"
+      set_error_from_stderr "$stderr_file" "$handler_exit"
+      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+        rm -f "$headers" "$body" "$response" "$stderr_file"
+        exit 1
+      fi
     fi
   fi
 
-  rm -f "$headers" "$body" "$response"
+  rm -f "$headers" "$body" "$response" "$stderr_file"
 done

@@ -18,4 +18,19 @@ Describe 'runtime error paths'
     When run ./scripts/runtime_error_test.sh handler-exit
     The status should be success
   End
+
+  It 'reports invocation error with stderr stackTrace'
+    When run ./scripts/runtime_error_test.sh handler-exit-stderr
+    The status should be success
+  End
+
+  It 'exits when response POST fails'
+    When run ./scripts/runtime_error_test.sh response-post-failure
+    The status should be success
+  End
+
+  It 'exits when error POST fails'
+    When run ./scripts/runtime_error_test.sh error-post-failure
+    The status should be success
+  End
 End

@@ -26,30 +26,74 @@ jobs:
       - name: Build layer (amd64)
         run: make build-amd64
 
-      - name: Run ShellSpec
-        id: shellspec
+      - name: Run ShellSpec (smoke)
+        id: shellspec_smoke
         continue-on-error: true
-        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh' make test
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/smoke' make test-smokespec
 
-      - name: Upload test report artifact
+      - name: Run ShellSpec (runtime errors)
+        id: shellspec_error
+        continue-on-error: true
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/error' make test-errorspec
+
+      - name: Run ShellSpec (integration)
+        id: shellspec_integration
+        continue-on-error: true
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/integration' make test-integration
+
+      - name: Upload smoke test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shellspec-junit
-          path: report/results_junit.xml
+          name: shellspec-smoke-junit
+          path: report/smoke/results_junit.xml
           if-no-files-found: warn
 
-      - name: Publish test report
+      - name: Upload runtime error test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shellspec-error-junit
+          path: report/error/results_junit.xml
+          if-no-files-found: warn
+
+      - name: Upload integration test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shellspec-integration-junit
+          path: report/integration/results_junit.xml
+          if-no-files-found: warn
+
+      - name: Publish smoke test report
         if: always()
         uses: dorny/test-reporter@v1
         with:
-          name: shellspec
-          path: report/results_junit.xml
+          name: shellspec-smoke
+          path: report/smoke/results_junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Publish runtime error test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: shellspec-error
+          path: report/error/results_junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Publish integration test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: shellspec-integration
+          path: report/integration/results_junit.xml
           reporter: java-junit
           fail-on-error: false
 
       - name: Fail if tests failed
-        if: steps.shellspec.outcome != 'success'
+        if: steps.shellspec_smoke.outcome != 'success' || steps.shellspec_error.outcome != 'success' || steps.shellspec_integration.outcome != 'success'
         run: exit 1
 
       - name: Configure AWS credentials (OIDC)
@@ -64,7 +108,7 @@ jobs:
         run: aws sts get-caller-identity
 
       - name: Publish and deploy dev SAR (amd64)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.shellspec.outcome == 'success'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.shellspec_smoke.outcome == 'success' && steps.shellspec_error.outcome == 'success' && steps.shellspec_integration.outcome == 'success'
         env:
           ENV: dev
         run: |
