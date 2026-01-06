@@ -59,7 +59,7 @@ ln -s "$root/scripts/mock_curl.sh" "$mock_bin/curl"
 
 printf '{"message":"hello","value":1}' > "$event_file"
 
-PATH="$mock_bin:$PATH" \
+PATH="$mock_bin:$layer_root/bin:$PATH" \
 LD_LIBRARY_PATH="$layer_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 AWS_LAMBDA_RUNTIME_API="mock" \
 LAMBDA_TASK_ROOT="$root/examples" \

@@ -72,7 +72,7 @@ if ! zip -sf "$layer_zip" > "$list_file"; then
   printf '%s\n' "Unable to read packaged layer zip: $layer_zip" >&2
   exit 1
 fi
-awk '/^[dl-]/ {print $NF}' "$list_file" > "$entries_file"
+sed '1d' "$list_file" | sed 's/^[[:space:]]*//' | sed '/^$/d' > "$entries_file"
 rm -f "$list_file"
 
 missing=""
