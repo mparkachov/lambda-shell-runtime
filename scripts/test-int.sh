@@ -25,6 +25,24 @@ wait_for_file() {
   [ -s "$file" ]
 }
 
+wait_for_payload() {
+  payload=$1
+  request_file=$2
+  next_file=$3
+  waits=${4:-200}
+  while [ "$waits" -gt 0 ]; do
+    if [ -f "$request_file" ] && grep -F "$payload" "$request_file" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ -f "$next_file" ] && grep -F "$payload" "$next_file" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+    waits=$((waits - 1))
+  done
+  return 1
+}
+
 ensure_image() {
   image=$1
   if ! docker image inspect "$image" >/dev/null 2>&1; then
@@ -458,6 +476,7 @@ API
     printf '%s\n' "Streaming response request was not captured" >&2
     exit 1
   fi
+  wait_for_payload "$streaming_payload" "$streaming_request" "$streaming_next_request" 600 || true
 
   streaming_request_clean=$(mktemp)
   {
