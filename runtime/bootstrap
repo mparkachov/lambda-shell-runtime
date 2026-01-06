@@ -5,6 +5,29 @@ log() {
   printf '%s\n' "$*" >&2
 }
 
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+make_temp_file() {
+  if command_exists mktemp; then
+    mktemp
+    return $?
+  fi
+  base=${TMPDIR:-/tmp}/lambda-runtime
+  i=0
+  while [ "$i" -lt 100 ]; do
+    candidate="${base}-$$-$i"
+    if [ ! -e "$candidate" ]; then
+      : > "$candidate" || return 1
+      printf '%s' "$candidate"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 json_escape() {
   printf '%s' "$1" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -56,6 +79,13 @@ build_error_payload() {
     "$escaped_message" "$escaped_type" "$stack_trace"
 }
 
+build_init_error_payload() {
+  message=$1
+  error_type=$2
+  printf '{"errorMessage":"%s","errorType":"%s","stackTrace":[]}' \
+    "$message" "$error_type"
+}
+
 post_runtime_error() {
   url=$1
   payload=$2
@@ -96,8 +126,16 @@ post_runtime_response() {
 post_init_error() {
   message=$1
   error_type=$2
-  payload=$(mktemp)
-  build_error_payload "$message" "$error_type" "[]" > "$payload"
+  payload_mode=${3:-escaped}
+  payload=$(make_temp_file) || {
+    log "Failed to create init error payload"
+    return 1
+  }
+  if [ "$payload_mode" = "raw" ]; then
+    build_init_error_payload "$message" "$error_type" > "$payload"
+  else
+    build_error_payload "$message" "$error_type" "[]" > "$payload"
+  fi
   if ! post_runtime_error \
     "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/init/error" \
     "$payload"; then
@@ -180,6 +218,27 @@ set_error_from_stderr() {
 runtime_api=${AWS_LAMBDA_RUNTIME_API:-}
 if [ -z "$runtime_api" ]; then
   log "AWS_LAMBDA_RUNTIME_API is not set"
+  exit 1
+fi
+
+required_tools="curl awk sed tr mktemp mkfifo"
+missing_tools=""
+for tool in $required_tools; do
+  if ! command_exists "$tool"; then
+    if [ -n "$missing_tools" ]; then
+      missing_tools="$missing_tools $tool"
+    else
+      missing_tools="$tool"
+    fi
+  fi
+done
+
+if [ -n "$missing_tools" ]; then
+  message="Missing required host tools: $missing_tools"
+  log "$message"
+  if command_exists curl; then
+    post_init_error "$message" "Runtime.InitError" "raw" || true
+  fi
   exit 1
 fi
 
