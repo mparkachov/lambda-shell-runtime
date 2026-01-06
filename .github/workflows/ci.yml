@@ -29,17 +29,17 @@ jobs:
       - name: Run ShellSpec (smoke)
         id: shellspec_smoke
         continue-on-error: true
-        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/smoke' make test-smokespec
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/smoke' make test-smoke
 
-      - name: Run ShellSpec (runtime errors)
-        id: shellspec_error
+      - name: Run ShellSpec (unit)
+        id: shellspec_unit
         continue-on-error: true
-        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/error' make test-errorspec
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/unit' make test-unit
 
       - name: Run ShellSpec (integration)
         id: shellspec_integration
         continue-on-error: true
-        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/integration' make test-integration
+        run: SHELLSPEC_ARGS='--output junit --shell /bin/sh --reportdir report/integration' make test-int
 
       - name: Upload smoke test report
         if: always()
@@ -49,12 +49,12 @@ jobs:
           path: report/smoke/results_junit.xml
           if-no-files-found: warn
 
-      - name: Upload runtime error test report
+      - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shellspec-error-junit
-          path: report/error/results_junit.xml
+          name: shellspec-unit-junit
+          path: report/unit/results_junit.xml
           if-no-files-found: warn
 
       - name: Upload integration test report
@@ -74,12 +74,12 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-      - name: Publish runtime error test report
+      - name: Publish unit test report
         if: always()
         uses: dorny/test-reporter@v1
         with:
-          name: shellspec-error
-          path: report/error/results_junit.xml
+          name: shellspec-unit
+          path: report/unit/results_junit.xml
           reporter: java-junit
           fail-on-error: false
 
@@ -93,7 +93,7 @@ jobs:
           fail-on-error: false
 
       - name: Fail if tests failed
-        if: steps.shellspec_smoke.outcome != 'success' || steps.shellspec_error.outcome != 'success' || steps.shellspec_integration.outcome != 'success'
+        if: steps.shellspec_smoke.outcome != 'success' || steps.shellspec_unit.outcome != 'success' || steps.shellspec_integration.outcome != 'success'
         run: exit 1
 
       - name: Configure AWS credentials (OIDC)
@@ -108,7 +108,7 @@ jobs:
         run: aws sts get-caller-identity
 
       - name: Publish and deploy dev SAR (amd64)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.shellspec_smoke.outcome == 'success' && steps.shellspec_error.outcome == 'success' && steps.shellspec_integration.outcome == 'success'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.shellspec_smoke.outcome == 'success' && steps.shellspec_unit.outcome == 'success' && steps.shellspec_integration.outcome == 'success'
         env:
           ENV: dev
         run: |
