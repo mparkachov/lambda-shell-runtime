@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|response-post-failure|error-post-failure>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|response-post-failure|error-post-failure|streaming-response>" >&2
   exit 2
 fi
 
@@ -15,6 +15,7 @@ event_file=$(mktemp)
 response_file=$(mktemp)
 endpoint_file=$(mktemp)
 header_file=$(mktemp)
+mode_file=$(mktemp)
 log_file=$(mktemp)
 mock_bin=$(mktemp -d)
 
@@ -25,7 +26,7 @@ cleanup() {
     kill "$bootstrap_pid" >/dev/null 2>&1 || true
     wait "$bootstrap_pid" >/dev/null 2>&1 || true
   fi
-  rm -f "$event_file" "$response_file" "$endpoint_file" "$header_file" "$log_file"
+  rm -f "$event_file" "$response_file" "$endpoint_file" "$header_file" "$mode_file" "$log_file"
   rm -rf "$workdir" "$mock_bin"
 }
 trap cleanup EXIT
@@ -154,6 +155,8 @@ run_bootstrap() {
   MOCK_RESPONSE_FILE="$response_file" \
   MOCK_ENDPOINT_FILE="$endpoint_file" \
   MOCK_ERROR_TYPE_FILE="$header_file" \
+  MOCK_RESPONSE_MODE="${MOCK_RESPONSE_MODE:-}" \
+  MOCK_RESPONSE_MODE_FILE="${MOCK_RESPONSE_MODE_FILE:-}" \
   MOCK_REQUEST_ID="test-invocation-id" \
   MOCK_RESPONSE_CODE="${MOCK_RESPONSE_CODE:-}" \
   MOCK_ERROR_CODE="${MOCK_ERROR_CODE:-}" \
@@ -318,6 +321,29 @@ HANDLER
     esac
     assert_file_equals "$header_file" "Unhandled"
     assert_log_contains "Failed to post runtime error"
+    ;;
+  streaming-response)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  printf '%s' '{"ok":true,"stream":"yes"}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    MOCK_RESPONSE_MODE="streaming"
+    MOCK_RESPONSE_MODE_FILE="$mode_file"
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    wait_for_file "$endpoint_file"
+    wait_for_file "$mode_file"
+    case "$(cat "$endpoint_file")" in
+      */response) ;;
+      *)
+        printf '%s\n' "Unexpected invoke response endpoint: $(cat "$endpoint_file")" >&2
+        exit 1
+        ;;
+    esac
+    assert_file_equals "$mode_file" "streaming"
+    assert_file_equals "$response_file" '{"ok":true,"stream":"yes"}'
     ;;
   *)
     printf '%s\n' "Unknown test case: $case_name" >&2

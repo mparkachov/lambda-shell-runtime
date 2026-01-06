@@ -1,36 +1,43 @@
-Describe 'runtime error paths'
+Describe 'unit tests'
   It 'reports init error for missing handler script'
-    When run ./scripts/runtime_error_test.sh missing-handler-file
+    When run ./scripts/test-unit.sh missing-handler-file
     The status should be success
   End
 
   It 'reports init error for missing handler function'
-    When run ./scripts/runtime_error_test.sh missing-handler-function
+    When run ./scripts/test-unit.sh missing-handler-function
     The status should be success
   End
 
   It 'reports init error for unreadable handler file'
-    When run ./scripts/runtime_error_test.sh unreadable-handler
+    When run ./scripts/test-unit.sh unreadable-handler
     The status should be success
   End
 
   It 'reports invocation error for non-zero exit'
-    When run ./scripts/runtime_error_test.sh handler-exit
+    When run ./scripts/test-unit.sh handler-exit
     The status should be success
   End
 
   It 'reports invocation error with stderr stackTrace'
-    When run ./scripts/runtime_error_test.sh handler-exit-stderr
+    When run ./scripts/test-unit.sh handler-exit-stderr
     The status should be success
   End
 
   It 'exits when response POST fails'
-    When run ./scripts/runtime_error_test.sh response-post-failure
+    When run ./scripts/test-unit.sh response-post-failure
     The status should be success
   End
 
   It 'exits when error POST fails'
-    When run ./scripts/runtime_error_test.sh error-post-failure
+    When run ./scripts/test-unit.sh error-post-failure
+    The status should be success
+  End
+End
+
+Describe 'response streaming'
+  It 'streams response when response mode is streaming'
+    When run ./scripts/test-unit.sh streaming-response
     The status should be success
   End
 End

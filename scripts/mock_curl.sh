@@ -7,7 +7,9 @@ write_out=""
 method=""
 data_file=""
 data_tmp=""
+data_from_stdin=0
 error_type=""
+response_mode=""
 url=""
 
 while [ "$#" -gt 0 ]; do
@@ -35,12 +37,18 @@ while [ "$#" -gt 0 ]; do
         Lambda-Runtime-Function-Error-Type:*)
           error_type=$(printf '%s' "$header" | sed 's/^[^:]*: *//')
           ;;
+        Lambda-Runtime-Function-Response-Mode:*)
+          response_mode=$(printf '%s' "$header" | sed 's/^[^:]*: *//')
+          ;;
       esac
       ;;
     --data-binary)
       shift
       data_spec=${1:-}
       case "$data_spec" in
+        @-)
+          data_from_stdin=1
+          ;;
         @*) data_file=${data_spec#@} ;;
         *)
           data_tmp=$(mktemp)
@@ -65,6 +73,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ "$data_from_stdin" -eq 1 ]; then
+  data_tmp=$(mktemp)
+  cat > "$data_tmp"
+  data_file=$data_tmp
+fi
+
 path=""
 if [ -n "$url" ]; then
   path=${url#*://}
@@ -86,6 +100,9 @@ case "$path" in
       {
         printf '%s\n' "Lambda-Runtime-Aws-Request-Id: $request_id"
         printf '%s\n' "Lambda-Runtime-Deadline-Ms: 0"
+        if [ -n "${MOCK_RESPONSE_MODE:-}" ]; then
+          printf '%s\n' "Lambda-Runtime-Function-Response-Mode: ${MOCK_RESPONSE_MODE}"
+        fi
       } > "$header_file"
     fi
     exit 0
@@ -114,6 +131,10 @@ fi
 
 if [ -n "${MOCK_ERROR_TYPE_FILE:-}" ] && [ -n "$error_type" ]; then
   printf '%s' "$error_type" > "$MOCK_ERROR_TYPE_FILE"
+fi
+
+if [ -n "${MOCK_RESPONSE_MODE_FILE:-}" ] && [ -n "$response_mode" ]; then
+  printf '%s' "$response_mode" > "$MOCK_RESPONSE_MODE_FILE"
 fi
 
 if [ -n "$target_file" ] && [ -n "$data_file" ]; then

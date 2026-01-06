@@ -29,7 +29,9 @@ The runtime is packaged as a Lambda Layer and is intended to be consumed directl
 - scripts/
   - build_layer.sh
   - package_layer.sh
-  - smoke_test.sh
+  - test-smoke.sh
+  - test-unit.sh
+  - test-int.sh
 - docker/Dockerfile
 - examples/
   - function.sh

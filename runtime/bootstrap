@@ -123,6 +123,26 @@ post_runtime_response() {
   esac
 }
 
+post_streaming_response() {
+  url=$1
+  payload=$2
+  http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    -H "Lambda-Runtime-Function-Response-Mode: streaming" \
+    -H "Trailer: Lambda-Runtime-Function-Error-Type, Lambda-Runtime-Function-Error-Body" \
+    --data-binary @- "$url" < "$payload")
+  curl_status=$?
+  if [ "$curl_status" -ne 0 ]; then
+    http_code=000
+  fi
+  case "$http_code" in
+    2??) return 0 ;;
+    *)
+      log "Failed to post runtime streaming response to $url (HTTP $http_code)"
+      return 1
+      ;;
+  esac
+}
+
 post_init_error() {
   message=$1
   error_type=$2
@@ -169,6 +189,55 @@ post_response() {
   post_runtime_response \
     "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
     "$response_file"
+}
+
+stream_response() {
+  request_id=$1
+  stderr_file=$2
+  shift 2
+
+  response_pipe=$(make_temp_file) || {
+    log "Failed to create response pipe"
+    return 1
+  }
+  rm -f "$response_pipe"
+  if ! mkfifo "$response_pipe"; then
+    log "Failed to create response pipe"
+    return 1
+  fi
+
+  post_streaming_response \
+    "http://${runtime_api}/2018-06-01/runtime/invocation/${request_id}/response" \
+    "$response_pipe" &
+  post_pid=$!
+
+  if run_with_stderr_capture "$stderr_file" "$@" > "$response_pipe"; then
+    handler_exit=0
+  else
+    handler_exit=$?
+  fi
+
+  if wait "$post_pid"; then
+    post_status=0
+  else
+    post_status=$?
+  fi
+
+  rm -f "$response_pipe"
+
+  if [ "$handler_exit" -eq 0 ]; then
+    if [ "$post_status" -eq 0 ]; then
+      return 0
+    fi
+    return 1
+  fi
+
+  log "Handler exited with status ${handler_exit}"
+  set_error_from_stderr "$stderr_file" "$handler_exit"
+  if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+    return 1
+  fi
+  return 0
 }
 
 # Capture handler stderr while streaming it to the runtime logs.
@@ -331,6 +400,7 @@ while :; do
   trace_id=$(header_value "$headers" "Lambda-Runtime-Trace-Id")
   client_context=$(header_value "$headers" "Lambda-Runtime-Client-Context")
   cognito_identity=$(header_value "$headers" "Lambda-Runtime-Cognito-Identity")
+  response_mode=$(header_value "$headers" "Lambda-Runtime-Function-Response-Mode")
 
   set_invocation_env "LAMBDA_RUNTIME_AWS_REQUEST_ID" "$request_id"
   set_invocation_env "LAMBDA_RUNTIME_DEADLINE_MS" "$deadline_ms"
@@ -344,48 +414,69 @@ while :; do
   stderr_file=$(mktemp)
   if [ "$handler_mode" = "function" ]; then
     event_data=$(cat "$body")
-    if run_with_stderr_capture "$stderr_file" "$handler_func" "$event_data" > "$response"; then
-      if ! post_response "$request_id" "$response"; then
+    if [ "$response_mode" = "streaming" ]; then
+      if ! stream_response "$request_id" "$stderr_file" "$handler_func" "$event_data"; then
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
     else
-      handler_exit=$?
-      log "Handler exited with status ${handler_exit}"
-      set_error_from_stderr "$stderr_file" "$handler_exit"
-      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
-        rm -f "$headers" "$body" "$response" "$stderr_file"
-        exit 1
+      if run_with_stderr_capture "$stderr_file" "$handler_func" "$event_data" > "$response"; then
+        if ! post_response "$request_id" "$response"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+        if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
       fi
     fi
   elif [ "$handler_mode" = "executable" ]; then
-    if run_with_stderr_capture "$stderr_file" "$handler_path" < "$body" > "$response"; then
-      if ! post_response "$request_id" "$response"; then
+    if [ "$response_mode" = "streaming" ]; then
+      if ! stream_response "$request_id" "$stderr_file" "$handler_path" < "$body"; then
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
     else
-      handler_exit=$?
-      log "Handler exited with status ${handler_exit}"
-      set_error_from_stderr "$stderr_file" "$handler_exit"
-      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
-        rm -f "$headers" "$body" "$response" "$stderr_file"
-        exit 1
+      if run_with_stderr_capture "$stderr_file" "$handler_path" < "$body" > "$response"; then
+        if ! post_response "$request_id" "$response"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+        if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
       fi
     fi
   else
-    if run_with_stderr_capture "$stderr_file" sh "$handler_path" < "$body" > "$response"; then
-      if ! post_response "$request_id" "$response"; then
+    if [ "$response_mode" = "streaming" ]; then
+      if ! stream_response "$request_id" "$stderr_file" sh "$handler_path" < "$body"; then
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
     else
-      handler_exit=$?
-      log "Handler exited with status ${handler_exit}"
-      set_error_from_stderr "$stderr_file" "$handler_exit"
-      if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
-        rm -f "$headers" "$body" "$response" "$stderr_file"
-        exit 1
+      if run_with_stderr_capture "$stderr_file" sh "$handler_path" < "$body" > "$response"; then
+        if ! post_response "$request_id" "$response"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+        if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
+          rm -f "$headers" "$body" "$response" "$stderr_file"
+          exit 1
+        fi
       fi
     fi
   fi

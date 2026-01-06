@@ -44,7 +44,7 @@ Template generation overrides:
 ## Smoke test
 
 ```sh
-./scripts/smoke_test.sh
+./scripts/test-smoke.sh
 ```
 
 The smoke test:
@@ -56,13 +56,13 @@ The smoke test:
 Run ShellSpec suites via `make`:
 
 ```sh
-make test-smokespec
-make test-errorspec
-make test-integration
+make test-smoke
+make test-unit
+make test-int
 make test
 ```
 
-`make test` runs the smoke and runtime error specs together.
+`make test` runs the smoke, unit, and integration specs together.
 
 ## Shellcheck
 

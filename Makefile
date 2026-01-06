@@ -1,4 +1,4 @@
-.PHONY: build build-layer build-arm64 build-amd64 build-all package-layer package-arm64 package-amd64 package-all smoke-test test test-shellspec test-integration test-all check-release delete-release delete-sar delete-dev-arm64 delete-dev-amd64 delete-dev delete-release-arm64 delete-release-amd64 publish-sar publish-arm64 publish-amd64 publish-wrapper publish-all publish-dev-arm64 publish-dev-amd64 deploy-sar deploy-dev-arm64 deploy-dev-amd64 deploy-dev release aws-check aws-setup aws-setup-dev clean
+.PHONY: build build-layer build-arm64 build-amd64 build-all package-layer package-arm64 package-amd64 package-all test test-smoke test-unit test-int test-shellspec test-all check-release delete-release delete-sar delete-dev-arm64 delete-dev-amd64 delete-dev delete-release-arm64 delete-release-amd64 publish-sar publish-arm64 publish-amd64 publish-wrapper publish-all publish-dev-arm64 publish-dev-amd64 deploy-sar deploy-dev-arm64 deploy-dev-amd64 deploy-dev release aws-check aws-setup aws-setup-dev clean
 
 ENV ?= prod
 ARCH ?=
@@ -33,16 +33,16 @@ package-amd64: build-amd64
 package-all: build-all
 	ARCH=all ./scripts/package_layer.sh
 
-test: test-smokespec test-errorspec test-integration
+test: test-smoke test-unit test-int
 
-test-smokespec:
-	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/smoke_spec.sh
+test-smoke:
+	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/test-smoke_spec.sh
 
-test-errorspec:
-	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/runtime_error_spec.sh 
+test-unit:
+	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/test-unit_spec.sh
 
-test-integration:
-	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/integration_spec.sh
+test-int:
+	$(SHELLSPEC) $(SHELLSPEC_ARGS) spec/test-int_spec.sh
 
 check-release:
 	./scripts/check_release.sh

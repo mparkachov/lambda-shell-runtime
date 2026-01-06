@@ -1,4 +1,4 @@
-Describe 'sam integration'
+Describe 'integration tests'
   sam_missing() { ! command -v sam >/dev/null 2>&1; }
   docker_missing() { ! command -v docker >/dev/null 2>&1; }
   docker_unavailable() { ! docker info >/dev/null 2>&1; }
@@ -8,7 +8,12 @@ Describe 'sam integration'
   Skip if "docker not running" docker_unavailable
 
   It 'invokes the example handler with SAM'
-    When run ./scripts/integration_test.sh
+    When run ./scripts/test-int.sh standard
+    The status should be success
+  End
+
+  It 'streams response with curl-minimal'
+    When run ./scripts/test-int.sh streaming
     The status should be success
   End
 End

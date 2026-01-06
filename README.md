@@ -49,7 +49,7 @@ at the packaged zips.
 ## Smoke test
 
 ```sh
-./scripts/smoke_test.sh
+./scripts/test-smoke.sh
 ```
 
 ## Usage
