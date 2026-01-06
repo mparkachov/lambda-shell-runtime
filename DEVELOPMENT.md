@@ -27,14 +27,19 @@ The Docker build uses `curl-minimal` to keep dependencies small. If you need ful
 
 This produces `dist/lambda-shell-runtime-<arch>.zip` with `bootstrap`, `bin/`, `aws-cli/`, and `lib/` at the zip
 root, plus a versioned artifact named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`. The script also
-updates the `SemanticVersion` in `template.yaml`, `template-arm64.yaml`, and `template-amd64.yaml` to match the
-bundled AWS CLI v2 version.
+generates `dist/template-*.yaml` with `SemanticVersion` set to the bundled AWS CLI v2 version and `ContentUri`
+pointing at the packaged zips.
+The source `template*.yaml` files remain static; publishing uses the generated templates.
 
 To package both architectures:
 
 ```sh
 ARCH=all ./scripts/package_layer.sh
 ```
+
+Template generation overrides:
+- `TEMPLATE_VERSION` (override the `SemanticVersion` written into `dist/template-*.yaml`; defaults to the bundled AWS CLI v2 version)
+- `TEMPLATE_OUTPUT_DIR` (output directory for generated templates; default: `dist`)
 
 ## Smoke test
 
@@ -64,7 +69,7 @@ make test
 All shell scripts are written for POSIX `sh` and should pass `shellcheck`.
 
 ```sh
-shellcheck runtime/bootstrap scripts/*.sh runtime-tutorial/function.sh
+shellcheck runtime/bootstrap scripts/*.sh examples/function.sh
 ```
 
 ## AWS configuration
@@ -72,7 +77,7 @@ shellcheck runtime/bootstrap scripts/*.sh runtime-tutorial/function.sh
 Project defaults live in `scripts/aws_env.sh`. It pins the AWS region to `us-east-1` and sets default names
 for the S3 bucket, setup stack, SAR applications, and the S3 prefix used for SAR artifacts. These defaults
 are used by `make aws-check`, `make aws-setup`, and `make release`.
-`./scripts/package_layer.sh` keeps the SAR application names in the templates aligned with these defaults; rerun it after changing the app name settings.
+`./scripts/package_layer.sh` renders `dist/template-*.yaml` with SAR application names aligned with these defaults; rerun it after changing the app name settings.
 Set `ENV=dev` to switch to the dev defaults (the `*_DEV` values).
 
 Override any of the defaults by exporting:
@@ -100,11 +105,10 @@ S3_BUCKET=your-bucket make release
 
 It:
 - builds and packages both architectures
-- updates the templates' `SemanticVersion` to the bundled AWS CLI v2 version
+- generates `dist/template-*.yaml` with `SemanticVersion` set to the bundled AWS CLI v2 version
 - checks for an existing Git tag
-- if missing, commits the templates, tags the repo, and creates a GitHub release with versioned artifacts
 - publishes the SAR applications with `sam package`/`sam publish`
-- updates `template.yaml` with the arm64/amd64 ApplicationIds and publishes the wrapper application
+- renders the wrapper template with the arm64/amd64 ApplicationIds and publishes the wrapper application
 - uploads SAR artifacts under `S3_PREFIX/<version>/<arch>`
 
 To check whether a release is needed without building anything, run:
@@ -189,7 +193,7 @@ To run in GitHub: Actions -> Release -> Run workflow.
 
 Manual fallback:
 1. Ensure `ARCH=all ./scripts/package_layer.sh` has been run so the versioned artifacts are created.
-2. Tag the release in Git. Use the AWS CLI version as the tag to match the templates' `SemanticVersion`.
+2. Tag the release in Git. Use the AWS CLI version as the tag to match the generated templates' `SemanticVersion`.
 
 ## Publish to SAR
 
@@ -208,17 +212,17 @@ To publish all three SAR applications (arm64, amd64, wrapper) in order:
 make publish-all
 ```
 
-`publish-all` requires the wrapper ApplicationIds to be populated in `template.yaml`.
+`make publish-wrapper` and `make publish-all` generate the wrapper template with the correct ApplicationIds automatically.
 
-To publish the wrapper application after updating the ApplicationIds, run:
+To publish the wrapper application, run:
 
 ```sh
 make publish-wrapper
 ```
 
-If you want the raw SAM commands instead:
+If you want the raw SAM commands for the per-arch apps:
 
-1. Build and package the layer (this updates the templates' `SemanticVersion` to match the bundled AWS CLI version):
+1. Build and package the layer (this generates `dist/template-*.yaml` with `SemanticVersion` set to the bundled AWS CLI version):
 
 ```sh
 ./scripts/build_layer.sh
@@ -229,53 +233,35 @@ If you want the raw SAM commands instead:
 
 ```sh
 sam package \
-  --template-file template-arm64.yaml \
+  --template-file dist/template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
   --s3-prefix "sar/<version>/arm64" \
-  --output-template-file packaged-arm64.yaml
+  --output-template-file dist/packaged-arm64.yaml
 
 sam package \
-  --template-file template-amd64.yaml \
+  --template-file dist/template-amd64.yaml \
   --s3-bucket "$S3_BUCKET" \
   --s3-prefix "sar/<version>/amd64" \
-  --output-template-file packaged-amd64.yaml
+  --output-template-file dist/packaged-amd64.yaml
 ```
 
 3. Publish to SAR:
 
 ```sh
-sam publish --template packaged-arm64.yaml
-sam publish --template packaged-amd64.yaml
+sam publish --template dist/packaged-arm64.yaml
+sam publish --template dist/packaged-amd64.yaml
 ```
 
-4. Update the wrapper template with the architecture application IDs and publish it:
+4. Publish the wrapper application (it is rendered with the architecture application IDs):
 
 ```sh
-ARM64_APP_ID=$(aws serverlessrepo list-applications \
-  --query "Applications[?Name=='lambda-shell-runtime-arm64'].ApplicationId | [0]" \
-  --output text)
-AMD64_APP_ID=$(aws serverlessrepo list-applications \
-  --query "Applications[?Name=='lambda-shell-runtime-amd64'].ApplicationId | [0]" \
-  --output text)
-
-sed -i.bak \
-  -e "s|__APP_ID_ARM64__|$ARM64_APP_ID|g" \
-  -e "s|__APP_ID_AMD64__|$AMD64_APP_ID|g" \
-  template.yaml
-
-sam package \
-  --template-file template.yaml \
-  --s3-bucket "$S3_BUCKET" \
-  --s3-prefix "sar/<version>/wrapper" \
-  --output-template-file packaged.yaml
-
-sam publish --template packaged.yaml
+make publish-wrapper
 ```
 
 ## AWS setup
 
 Use `make aws-setup` to bootstrap the S3 bucket and create the SAR applications if they do not exist.
-CloudFormation cannot create SAR applications directly, so the target creates the bucket via `aws-setup.yaml`
+CloudFormation cannot create SAR applications directly, so the target creates the bucket via `template/aws-setup.yaml`
 and then runs `sam publish` to create the first SAR version if needed.
 
 ```sh

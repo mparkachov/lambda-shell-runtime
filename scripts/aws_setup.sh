@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -18,11 +19,12 @@ bucket_name=${BUCKET_NAME:-$LSR_BUCKET_NAME}
 wrapper_app_name=$LSR_SAR_APP_NAME_WRAPPER
 arm64_app_name=$LSR_SAR_APP_NAME_ARM64
 amd64_app_name=$LSR_SAR_APP_NAME_AMD64
-template_path="$root/aws-setup.yaml"
+template_path="$root/template/aws-setup.yaml"
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
-template_wrapper="$root/template.yaml"
-template_arm64="$root/template-arm64.yaml"
-template_amd64="$root/template-amd64.yaml"
+template_wrapper_src=$(template_source_path wrapper)
+template_wrapper_out=$(template_output_path wrapper)
+template_arm64=$(template_output_path arm64)
+template_amd64=$(template_output_path amd64)
 
 sar_app_id() {
   name=$1
@@ -54,30 +56,6 @@ sar_app_exists() {
     return 0
   fi
   return 1
-}
-
-update_wrapper_template() {
-  path=$1
-  version=$2
-  arm64_id=$3
-  amd64_id=$4
-  app_name=$5
-
-  tmp_template=$(mktemp)
-  awk -v version="$version" \
-    -v arm64_id="$arm64_id" \
-    -v amd64_id="$amd64_id" \
-    -v app_name="$app_name" '
-    $1 == "Name:" && app_name != "" { sub(/Name:.*/, "Name: " app_name); print; next }
-    $1 == "SemanticVersion:" { sub(/SemanticVersion:.*/, "SemanticVersion: " version); print; next }
-    /^[[:space:]]*RuntimeArm64Application:/ { in_arm64=1; in_amd64=0 }
-    /^[[:space:]]*RuntimeAmd64Application:/ { in_arm64=0; in_amd64=1 }
-    /^[[:space:]]*Outputs:/ { in_arm64=0; in_amd64=0 }
-    $1 == "ApplicationId:" && in_arm64 { sub(/ApplicationId:.*/, "ApplicationId: " arm64_id); print; next }
-    $1 == "ApplicationId:" && in_amd64 { sub(/ApplicationId:.*/, "ApplicationId: " amd64_id); print; next }
-    { print }
-  ' "$path" > "$tmp_template"
-  mv "$tmp_template" "$path"
 }
 
 create_bucket="true"
@@ -154,11 +132,12 @@ make package-all
 S3_BUCKET=${S3_BUCKET:-$bucket_name}
 export S3_BUCKET
 
-version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$template_arm64")
-if [ -z "$version" ]; then
-  printf '%s\n' "Unable to resolve SemanticVersion from $template_arm64" >&2
+if [ ! -f "$template_arm64" ] || [ ! -f "$template_amd64" ]; then
+  printf '%s\n' "Generated templates not found. Run make package-all first." >&2
   exit 1
 fi
+
+version=$(template_semantic_version "$template_arm64")
 
 s3_prefix_publish_base="${s3_prefix_base}/${version}"
 
@@ -169,7 +148,7 @@ publish_app() {
     return 0
   fi
   s3_prefix_publish="${s3_prefix_publish_base}/${arch}"
-  packaged_path="$root/packaged-$arch.yaml"
+  packaged_path="$root/dist/packaged-$arch.yaml"
   SAM_CLI_TELEMETRY=0 \
   sam package \
     --template-file "$template_path" \
@@ -195,6 +174,15 @@ if [ -z "$amd64_id" ] || [ "$amd64_id" = "None" ] || [ "$amd64_id" = "null" ]; t
 fi
 
 if [ "$use_wrapper" = "true" ]; then
-  update_wrapper_template "$template_wrapper" "$version" "$arm64_id" "$amd64_id" "$wrapper_app_name"
-  publish_app "wrapper" "$template_wrapper" "$wrapper_exists"
+  mkdir -p "$(template_output_dir)"
+  render_template \
+    "$template_wrapper_src" \
+    "$template_wrapper_out" \
+    "$version" \
+    "$wrapper_app_name" \
+    "" \
+    "" \
+    "$arm64_id" \
+    "$amd64_id"
+  publish_app "wrapper" "$template_wrapper_out" "$wrapper_exists"
 fi

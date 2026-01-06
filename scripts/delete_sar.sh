@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -64,14 +65,21 @@ if [ -z "$bucket_name" ]; then
   exit 1
 fi
 
-version=$LSR_SAR_VERSION
+version=${LSR_SAR_VERSION:-${RELEASE_VERSION:-${AWSCLI_VERSION:-}}}
 if [ -z "$version" ]; then
-  template_path="$root/template-$arch.yaml"
-  if [ ! -f "$template_path" ]; then
-    printf '%s\n' "Template not found at $template_path" >&2
-    exit 1
+  template_path=$(template_output_path "$arch")
+  if [ -f "$template_path" ]; then
+    version=$(template_semantic_version "$template_path")
+  else
+    template_path=$(template_source_path "$arch")
+    if [ -f "$template_path" ]; then
+      version=$(template_semantic_version "$template_path")
+      printf '%s\n' "Using version from source template: $template_path" >&2
+    else
+      printf '%s\n' "Template not found for $arch." >&2
+      exit 1
+    fi
   fi
-  version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$template_path")
 fi
 if [ -z "$version" ]; then
   printf '%s\n' "Unable to resolve SemanticVersion for $arch." >&2

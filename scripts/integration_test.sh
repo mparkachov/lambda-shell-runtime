@@ -97,7 +97,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp "$root/runtime-tutorial/function.sh" "$code_dir/function.sh"
+cp "$root/examples/function.sh" "$code_dir/function.sh"
 cat <<'BOOT' > "$code_dir/bootstrap"
 #!/bin/sh
 exec /opt/bootstrap

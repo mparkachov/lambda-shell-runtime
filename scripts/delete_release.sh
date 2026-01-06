@@ -2,6 +2,8 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -13,38 +15,24 @@ require_cmd() {
 require_cmd git
 require_cmd gh
 
-template_arm64="$root/template-arm64.yaml"
-template_amd64="$root/template-amd64.yaml"
-template_wrapper="$root/template.yaml"
-
-template_version() {
-  path=$1
-  version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$path")
-  case "$version" in
-    ''|*[!0-9.]*|*.*.*.*)
-      printf '%s\n' "Unable to parse SemanticVersion from $path: $version" >&2
-      exit 1
-      ;;
-    *.*.*)
-      ;;
-    *)
-      printf '%s\n' "Unable to parse SemanticVersion from $path: $version" >&2
-      exit 1
-      ;;
-  esac
-  printf '%s\n' "$version"
-}
+template_arm64=$(template_output_path arm64)
+template_amd64=$(template_output_path amd64)
 
 version=${RELEASE_VERSION:-}
 if [ -z "$version" ]; then
-  version_wrapper=$(template_version "$template_wrapper")
-  version_arm64=$(template_version "$template_arm64")
-  version_amd64=$(template_version "$template_amd64")
-  if [ "$version_wrapper" != "$version_arm64" ] || [ "$version_arm64" != "$version_amd64" ]; then
-    printf '%s\n' "Template SemanticVersion mismatch; set RELEASE_VERSION to override." >&2
+  if [ ! -f "$template_arm64" ]; then
+    printf '%s\n' "RELEASE_VERSION not set and generated templates not found. Run make package-all or set RELEASE_VERSION." >&2
     exit 1
   fi
+  version_arm64=$(template_semantic_version "$template_arm64")
   version=$version_arm64
+  if [ -f "$template_amd64" ]; then
+    version_amd64=$(template_semantic_version "$template_amd64")
+    if [ "$version_arm64" != "$version_amd64" ]; then
+      printf '%s\n' "Template SemanticVersion mismatch; set RELEASE_VERSION to override." >&2
+      exit 1
+    fi
+  fi
 fi
 
 if ! gh auth status >/dev/null 2>&1; then

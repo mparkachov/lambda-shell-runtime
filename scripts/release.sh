@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -19,9 +20,10 @@ require_cmd gh
 release_branch=${RELEASE_BRANCH:-main}
 s3_prefix_base=${S3_PREFIX:-$LSR_S3_PREFIX}
 wrapper_app_name=$LSR_SAR_APP_NAME_WRAPPER
-template_wrapper="$root/template.yaml"
-template_arm64="$root/template-arm64.yaml"
-template_amd64="$root/template-amd64.yaml"
+template_wrapper_src=$(template_source_path wrapper)
+template_wrapper_out=$(template_output_path wrapper)
+template_arm64=$(template_output_path arm64)
+template_amd64=$(template_output_path amd64)
 
 ensure_git_identity() {
   git_name=$(git config user.name 2>/dev/null || true)
@@ -49,44 +51,18 @@ fi
 
 changes=$(git diff --name-only HEAD)
 if [ -n "$changes" ]; then
-  other_changes=$(printf '%s\n' "$changes" | grep -vE '^(template.yaml|template-arm64.yaml|template-amd64.yaml)$' || true)
-  if [ -n "$other_changes" ]; then
-    printf '%s\n' "Working tree has uncommitted changes:" >&2
-    printf '%s\n' "$other_changes" >&2
-    exit 1
-  fi
-fi
-
-template_version() {
-  path=$1
-  if [ ! -f "$path" ]; then
-    printf '%s\n' "Template not found at $path" >&2
-    exit 1
-  fi
-
-  version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$path")
-  case "$version" in
-    ''|*[!0-9.]*|*.*.*.*)
-      printf '%s\n' "Unable to parse SemanticVersion from $path" >&2
-      exit 1
-      ;;
-    *.*.*)
-      ;;
-    *)
-      printf '%s\n' "Unable to parse SemanticVersion from $path: $version" >&2
-      exit 1
-      ;;
-  esac
-  printf '%s\n' "$version"
-}
-
-version_wrapper=$(template_version "$template_wrapper")
-version_arm64=$(template_version "$template_arm64")
-version_amd64=$(template_version "$template_amd64")
-if [ "$version_wrapper" != "$version_arm64" ]; then
-  printf '%s\n' "SemanticVersion mismatch: $template_wrapper=$version_wrapper $template_arm64=$version_arm64" >&2
+  printf '%s\n' "Working tree has uncommitted changes:" >&2
+  printf '%s\n' "$changes" >&2
   exit 1
 fi
+
+if [ ! -f "$template_arm64" ] || [ ! -f "$template_amd64" ]; then
+  printf '%s\n' "Generated templates not found. Run make package-all first." >&2
+  exit 1
+fi
+
+version_arm64=$(template_semantic_version "$template_arm64")
+version_amd64=$(template_semantic_version "$template_amd64")
 if [ "$version_arm64" != "$version_amd64" ]; then
   printf '%s\n' "SemanticVersion mismatch: $template_arm64=$version_arm64 $template_amd64=$version_amd64" >&2
   exit 1
@@ -118,30 +94,6 @@ sar_app_id() {
   return 1
 }
 
-update_wrapper_template() {
-  path=$1
-  version=$2
-  arm64_id=$3
-  amd64_id=$4
-  app_name=$5
-
-  tmp_template=$(mktemp)
-  awk -v version="$version" \
-    -v arm64_id="$arm64_id" \
-    -v amd64_id="$amd64_id" \
-    -v app_name="$app_name" '
-    $1 == "Name:" && app_name != "" { sub(/Name:.*/, "Name: " app_name); print; next }
-    $1 == "SemanticVersion:" { sub(/SemanticVersion:.*/, "SemanticVersion: " version); print; next }
-    /^[[:space:]]*RuntimeArm64Application:/ { in_arm64=1; in_amd64=0 }
-    /^[[:space:]]*RuntimeAmd64Application:/ { in_arm64=0; in_amd64=1 }
-    /^[[:space:]]*Outputs:/ { in_arm64=0; in_amd64=0 }
-    $1 == "ApplicationId:" && in_arm64 { sub(/ApplicationId:.*/, "ApplicationId: " arm64_id); print; next }
-    $1 == "ApplicationId:" && in_amd64 { sub(/ApplicationId:.*/, "ApplicationId: " amd64_id); print; next }
-    { print }
-  ' "$path" > "$tmp_template"
-  mv "$tmp_template" "$path"
-}
-
 tag_exists=false
 if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
   tag_exists=true
@@ -167,7 +119,16 @@ if [ -z "$amd64_id" ] || [ "$amd64_id" = "None" ] || [ "$amd64_id" = "null" ]; t
   exit 1
 fi
 
-update_wrapper_template "$template_wrapper" "$version" "$arm64_id" "$amd64_id" "$wrapper_app_name"
+mkdir -p "$(template_output_dir)"
+render_template \
+  "$template_wrapper_src" \
+  "$template_wrapper_out" \
+  "$version" \
+  "$wrapper_app_name" \
+  "" \
+  "" \
+  "$arm64_id" \
+  "$amd64_id"
 
 if [ -z "${S3_BUCKET:-}" ]; then
   printf '%s\n' "S3_BUCKET is not set." >&2
@@ -183,18 +144,11 @@ if ! gh auth status >/dev/null 2>&1; then
   export GH_TOKEN="$token"
 fi
 
-if ! git diff --quiet HEAD -- "$template_wrapper" "$template_arm64" "$template_amd64"; then
-  ensure_git_identity
-  git add "$template_wrapper" "$template_arm64" "$template_amd64"
-  git commit -m "Release $version"
-  git push origin "$current_branch"
-fi
-
 publish_template() {
   arch=$1
   template_path=$2
   s3_prefix_publish="${s3_prefix_publish_base}/${arch}"
-  packaged_path="$root/packaged-$arch.yaml"
+  packaged_path="$root/dist/packaged-$arch.yaml"
   SAM_CLI_TELEMETRY=0 \
   sam package \
     --template-file "$template_path" \
@@ -207,7 +161,7 @@ publish_template() {
 
 publish_template "arm64" "$template_arm64"
 publish_template "amd64" "$template_amd64"
-publish_template "wrapper" "$template_wrapper"
+publish_template "wrapper" "$template_wrapper_out"
 
 if [ "$tag_exists" = "true" ]; then
   printf '%s\n' "Tag $version already exists; skipping tag and GitHub release."

@@ -1,4 +1,4 @@
-# Runtime Tutorial
+# Examples
 
 This example mirrors the AWS custom runtime tutorial layout while using the runtime from the layer. It defines a
 minimal handler function that reads JSON from the first argument and writes JSON to STDOUT. It also calls
@@ -16,7 +16,7 @@ The layer zips will be created at `dist/lambda-shell-runtime-arm64.zip` and `dis
 ## Package the function
 
 ```sh
-cd runtime-tutorial
+cd examples
 zip -r ../dist/hello-function.zip function.sh
 ```
 

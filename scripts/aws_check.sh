@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -243,25 +244,36 @@ resolve_version() {
     return 0
   fi
 
-  template_path="$root/template-$arch.yaml"
-  if [ ! -f "$template_path" ]; then
-    printf '%s\n' "Template not found at $template_path" >&2
-    exit 1
+  if [ -n "${RELEASE_VERSION:-}" ]; then
+    printf '%s\n' "$RELEASE_VERSION"
+    return 0
   fi
-  version=$(awk -F': *' '/^[[:space:]]*SemanticVersion:/ {print $2; exit}' "$template_path")
-  case "$version" in
-    ''|*[!0-9.]*|*.*.*.*)
-      printf '%s\n' "Unable to parse SemanticVersion from $template_path: $version" >&2
-      exit 1
-      ;;
-    *.*.*)
-      ;;
-    *)
-      printf '%s\n' "Unable to parse SemanticVersion from $template_path: $version" >&2
-      exit 1
-      ;;
-  esac
-  printf '%s\n' "$version"
+
+  if [ -n "${LSR_SAR_VERSION:-}" ]; then
+    printf '%s\n' "$LSR_SAR_VERSION"
+    return 0
+  fi
+
+  if [ -n "${AWSCLI_VERSION:-}" ]; then
+    printf '%s\n' "$AWSCLI_VERSION"
+    return 0
+  fi
+
+  template_path=$(template_output_path "$arch")
+  if [ -f "$template_path" ]; then
+    template_semantic_version "$template_path"
+    return 0
+  fi
+
+  template_path=$(template_source_path "$arch")
+  if [ -f "$template_path" ]; then
+    printf '%s\n' "Using version from source template: $template_path" >&2
+    template_semantic_version "$template_path"
+    return 0
+  fi
+
+  printf '%s\n' "Template not found for $arch." >&2
+  exit 1
 }
 
 check_s3_rw() {

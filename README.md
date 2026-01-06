@@ -17,11 +17,14 @@
 - `layer/opt`: staged layer contents for the host architecture
 - `scripts/`: build, package, and smoke test scripts
 - `docker/Dockerfile`: build image for Amazon Linux 2023 (arm64, x86_64)
-- `template.yaml`: SAR wrapper application (arm64 + amd64)
-- `template-arm64.yaml`, `template-amd64.yaml`: SAR application templates (SAM)
+- `template/template.yaml`: source SAR wrapper template (arm64 + amd64)
+- `template/template-arm64.yaml`, `template/template-amd64.yaml`: source SAR application templates (SAM)
+- `template/aws-setup.yaml`: CloudFormation stack for SAR setup
+- `dist/template-*.yaml`: generated publish/release templates (ignored in git)
+- `USAGE.md`: runtime contract and manual publishing
+- `DEVELOPMENT.md`: build and release workflow
 - `SAR_README.md`: SAR application README shown to end users
-- `runtime-tutorial/`: minimal handler example
-- `docs/`: usage and development notes
+- `examples/`: minimal handler example
 
 ## Build the layer
 
@@ -39,7 +42,9 @@ The build image uses `curl-minimal` to keep dependencies small. If the AWS CLI d
 
 The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-runtime-amd64.zip`, each containing
 `bootstrap`, `bin/`, `aws-cli/`, and `lib/` at the zip root (Lambda mounts them under `/opt`).
-`./scripts/package_layer.sh` also writes versioned artifacts named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip` and updates the `SemanticVersion` in both templates to match the bundled AWS CLI v2 version.
+`./scripts/package_layer.sh` also writes versioned artifacts named `dist/lambda-shell-runtime-<arch>-<aws-cli-version>.zip`
+and generates `dist/template-*.yaml` with `SemanticVersion` set to the bundled AWS CLI v2 version and `ContentUri` pointing
+at the packaged zips.
 
 ## Smoke test
 
@@ -53,7 +58,7 @@ The outputs are `dist/lambda-shell-runtime-arm64.zip` and `dist/lambda-shell-run
 - Architecture: `arm64` or `x86_64`
 - Handler: `function.handler` (script stored as `function.sh` in your function package)
 
-See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [docs/USAGE.md](docs/USAGE.md) for manual publishing and the runtime contract, [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build and release workflow, and [runtime-tutorial/README.md](runtime-tutorial/README.md) for a deployable example.
+See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [USAGE.md](USAGE.md) for manual publishing and the runtime contract, [DEVELOPMENT.md](DEVELOPMENT.md) for build and release workflow, and [examples/README.md](examples/README.md) for a deployable example.
 
 ## Publish to SAR
 
@@ -66,22 +71,22 @@ Set `S3_BUCKET` to an S3 bucket in your account and run:
 
 ```sh
 sam package \
-  --template-file template-arm64.yaml \
+  --template-file dist/template-arm64.yaml \
   --s3-bucket "$S3_BUCKET" \
   --s3-prefix "sar" \
-  --output-template-file packaged-arm64.yaml
+  --output-template-file dist/packaged-arm64.yaml
 
-sam publish --template packaged-arm64.yaml
+sam publish --template dist/packaged-arm64.yaml
 
 sam package \
-  --template-file template-amd64.yaml \
+  --template-file dist/template-amd64.yaml \
   --s3-bucket "$S3_BUCKET" \
   --s3-prefix "sar" \
-  --output-template-file packaged-amd64.yaml
+  --output-template-file dist/packaged-amd64.yaml
 
-sam publish --template packaged-amd64.yaml
+sam publish --template dist/packaged-amd64.yaml
 ```
 
 Each SAR application publishes a single layer output (`LayerVersionArn`) for its architecture.
-`./scripts/package_layer.sh` updates the templates' `SemanticVersion` to match the bundled AWS CLI v2 version; review and commit the change for each release.
-The wrapper application in `template.yaml` references both architecture-specific apps; `make release` and `make aws-setup` publish it after the per-arch apps.
+Generated templates live under `dist/` and are not committed; the source templates stay static.
+The wrapper application is rendered at publish time with the current per-arch ApplicationIds; `make release` and `make aws-setup` publish it after the per-arch apps.

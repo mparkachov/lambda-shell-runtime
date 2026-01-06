@@ -5,9 +5,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 self="$root/scripts/package_layer.sh"
 layer_base="$root/layer"
 dist_dir="$root/dist"
-template_paths=${TEMPLATE_PATHS:-"$root/template.yaml $root/template-arm64.yaml $root/template-amd64.yaml"}
 
 . "$root/scripts/aws_env.sh"
+. "$root/scripts/template_utils.sh"
 
 host_arch() {
   arch=$(uname -m 2>/dev/null || true)
@@ -82,6 +82,26 @@ case "$aws_version" in
     ;;
 esac
 
+template_version=${TEMPLATE_VERSION:-$aws_version}
+case "$template_version" in
+  ''|*[!0-9.]*|*.*.*.*)
+    printf '%s\n' "Unable to parse template version: $template_version" >&2
+    exit 1
+    ;;
+  *.*.*)
+    ;;
+  *)
+    printf '%s\n' "Unable to parse template version: $template_version" >&2
+    exit 1
+    ;;
+esac
+
+template_paths=${TEMPLATE_PATHS:-"$(template_source_path wrapper) $(template_source_path arm64) $(template_source_path amd64)"}
+template_out_dir=$(template_output_dir)
+template_suffix_value=$(template_suffix)
+
+mkdir -p "$template_out_dir"
+
 for template_path in $template_paths; do
   if [ ! -f "$template_path" ]; then
     printf '%s\n' "Template not found at $template_path" >&2
@@ -94,19 +114,51 @@ for template_path in $template_paths; do
   fi
 
   app_name=""
+  layer_name=""
+  content_uri=""
+  content_uri_base=""
+  arch=""
   case "$(basename "$template_path")" in
-    template.yaml) app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE} ;;
-    template-arm64.yaml) app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64} ;;
-    template-amd64.yaml) app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64} ;;
+    template.yaml)
+      app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
+      arch="wrapper"
+      ;;
+    template-arm64.yaml)
+      app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}
+      layer_name=${LSR_LAYER_NAME_ARM64:-$app_name}
+      content_uri_base="lambda-shell-runtime-arm64.zip"
+      arch="arm64"
+      ;;
+    template-amd64.yaml)
+      app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}
+      layer_name=${LSR_LAYER_NAME_AMD64:-$app_name}
+      content_uri_base="lambda-shell-runtime-amd64.zip"
+      arch="amd64"
+      ;;
   esac
 
-  tmp_template=$(mktemp)
-  awk -v version="$aws_version" -v app_name="$app_name" '
-    $1 == "Name:" && app_name != "" { sub(/Name:.*/, "Name: " app_name); print; next }
-    $1 == "SemanticVersion:" { sub(/SemanticVersion:.*/, "SemanticVersion: " version); print; next }
-    { print }
-  ' "$template_path" > "$tmp_template"
-  mv "$tmp_template" "$template_path"
+  base_name=$(basename "$template_path" .yaml)
+  if [ -n "$arch" ]; then
+    output_path=$(template_output_path "$arch")
+  else
+    output_path="$template_out_dir/${base_name}${template_suffix_value}.yaml"
+  fi
+
+  if [ -n "$content_uri_base" ]; then
+    if [ "$template_out_dir" = "$dist_dir" ]; then
+      content_uri="$content_uri_base"
+    else
+      content_uri="$dist_dir/$content_uri_base"
+    fi
+  fi
+
+  render_template \
+    "$template_path" \
+    "$output_path" \
+    "$template_version" \
+    "$app_name" \
+    "$layer_name" \
+    "$content_uri"
 done
 
 mkdir -p "$dist_dir"

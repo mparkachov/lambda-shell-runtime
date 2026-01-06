@@ -30,12 +30,16 @@ The runtime is packaged as a Lambda Layer and is intended to be consumed directl
   - package_layer.sh
   - smoke_test.sh
 - docker/Dockerfile
-- runtime-tutorial/
+- examples/
   - function.sh
   - README.md
-- docs/
-  - USAGE.md
-  - DEVELOPMENT.md
+- template/
+  - template.yaml
+  - template-arm64.yaml
+  - template-amd64.yaml
+  - aws-setup.yaml
+- USAGE.md
+- DEVELOPMENT.md
 - dist/
 - Makefile
 - README.md
