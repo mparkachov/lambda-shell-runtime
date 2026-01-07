@@ -117,29 +117,29 @@ for template_path in $template_paths; do
   layer_name=""
   content_uri=""
   content_uri_base=""
-  arch=""
+  template_arch=""
   case "$(basename "$template_path")" in
     template.yaml)
       app_name=${SAR_APP_NAME_BASE:-$LSR_SAR_APP_BASE}
-      arch="wrapper"
+      template_arch="wrapper"
       ;;
     template-arm64.yaml)
       app_name=${SAR_APP_NAME_ARM64:-$LSR_SAR_APP_NAME_ARM64}
       layer_name=${LSR_LAYER_NAME_ARM64:-$app_name}
       content_uri_base="lambda-shell-runtime-arm64.zip"
-      arch="arm64"
+      template_arch="arm64"
       ;;
     template-amd64.yaml)
       app_name=${SAR_APP_NAME_AMD64:-$LSR_SAR_APP_NAME_AMD64}
       layer_name=${LSR_LAYER_NAME_AMD64:-$app_name}
       content_uri_base="lambda-shell-runtime-amd64.zip"
-      arch="amd64"
+      template_arch="amd64"
       ;;
   esac
 
   base_name=$(basename "$template_path" .yaml)
-  if [ -n "$arch" ]; then
-    output_path=$(template_output_path "$arch")
+  if [ -n "$template_arch" ]; then
+    output_path=$(template_output_path "$template_arch")
   else
     output_path="$template_out_dir/${base_name}${template_suffix_value}.yaml"
   fi
