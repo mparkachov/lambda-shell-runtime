@@ -101,8 +101,15 @@ fi
 
 for arch in arm64 amd64; do
   artifact="dist/lambda-shell-runtime-$arch-$version.zip"
+  fallback="dist/lambda-shell-runtime-$arch.zip"
+  if [ ! -f "$artifact" ] && [ -f "$fallback" ]; then
+    cp "$fallback" "$artifact"
+  fi
   if [ ! -f "$artifact" ]; then
     printf '%s\n' "Expected artifact not found: $artifact" >&2
+    if [ -f "$fallback" ]; then
+      printf '%s\n' "Found unversioned artifact at $fallback but failed to create versioned copy." >&2
+    fi
     printf '%s\n' "Run make package-all first." >&2
     exit 1
   fi

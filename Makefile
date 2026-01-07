@@ -101,7 +101,7 @@ release:
 	ENV=prod ./scripts/check_release.sh; status=$$?; \
 	if [ $$status -eq 2 ]; then exit 0; fi; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	$(MAKE) package-all; \
+	$(MAKE) package-all && \
 	ENV=prod ./scripts/release.sh
 
 aws-check:
