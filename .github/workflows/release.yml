@@ -55,4 +55,5 @@ jobs:
         env:
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           GH_TOKEN: ${{ github.token }}
+          AWSCLI_VERSION: ${{ steps.check.outputs.release_version }}
         run: make release

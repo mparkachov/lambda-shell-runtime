@@ -54,5 +54,23 @@ if git rev-parse "refs/tags/$release_version" >/dev/null 2>&1; then
   exit 0
 fi
 
+missing_arch=""
+for arch in aarch64 x86_64; do
+  url="https://awscli.amazonaws.com/awscli-exe-linux-${arch}-${release_version}.zip"
+  if ! curl -fsI "$url" >/dev/null 2>&1; then
+    if [ -z "$missing_arch" ]; then
+      missing_arch=$arch
+    else
+      missing_arch="$missing_arch $arch"
+    fi
+  fi
+done
+if [ -n "$missing_arch" ]; then
+  printf '%s\n' "AWS CLI $release_version is not available for: $missing_arch" >&2
+  printf '%s\n' "Skipping release until downloads are available." >&2
+  write_outputs "release_needed=false" "release_version=$release_version"
+  exit 0
+fi
+
 printf '%s\n' "Release version $release_version does not exist; proceeding."
 write_outputs "release_needed=true" "release_version=$release_version"

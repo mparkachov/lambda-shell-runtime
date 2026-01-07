@@ -19,6 +19,9 @@ ARCH=all ./scripts/build_layer.sh
 Cross-architecture builds require Docker buildx with QEMU/binfmt configured so the non-native image can be built locally.
 The Docker build uses `curl-minimal` to keep dependencies small. If you need full curl features, switch the Dockerfile to `curl`.
 
+To pin the AWS CLI v2 version bundled into the layer, set `AWSCLI_VERSION` (for example, `AWSCLI_VERSION=2.32.30 ./scripts/build_layer.sh`).
+This uses the versioned AWS CLI installer URL and ensures the build is consistent across architectures.
+
 ## Package the layer
 
 ```sh
@@ -117,7 +120,8 @@ To check whether a release is needed without building anything, run:
 make check-release
 ```
 
-This checks the latest AWS CLI v2 version (via the AWS CLI GitHub tags) against existing Git tags.
+This checks the latest AWS CLI v2 version (via the AWS CLI GitHub tags) against existing Git tags, and verifies the
+versioned AWS CLI downloads are available for both architectures.
 
 To delete the current GitHub release and tag (so you can re-run `make release`), run:
 

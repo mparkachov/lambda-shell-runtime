@@ -35,6 +35,22 @@ case "$arch" in
     ;;
  esac
 
+awscli_version=${AWSCLI_VERSION:-}
+if [ -n "$awscli_version" ]; then
+  case "$awscli_version" in
+    ''|*[!0-9.]*|*.*.*.*)
+      printf '%s\n' "Unsupported AWSCLI_VERSION: $awscli_version" >&2
+      exit 1
+      ;;
+    *.*.*)
+      ;;
+    *)
+      printf '%s\n' "Unsupported AWSCLI_VERSION: $awscli_version" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 host=$(host_arch)
 if [ "$arch" = "$host" ]; then
   layer_root="$root/layer/opt"
@@ -45,25 +61,35 @@ fi
 platform="linux/$arch"
 image="lambda-shell-runtime-builder:$arch"
 container_id=""
+build_args=""
+
+if [ -n "$awscli_version" ]; then
+  build_args="--build-arg AWSCLI_VERSION=$awscli_version"
+fi
 
 if docker buildx version >/dev/null 2>&1; then
-  docker buildx build --load --platform "$platform" -t "$image" -f "$root/docker/Dockerfile" "$root"
+  docker buildx build --load --platform "$platform" $build_args -t "$image" -f "$root/docker/Dockerfile" "$root"
   container_id=$(docker create --platform "$platform" "$image")
 elif [ "$arch" = "$host" ]; then
-  DOCKER_BUILDKIT=1 docker build --platform "$platform" -t "$image" -f "$root/docker/Dockerfile" "$root"
+  DOCKER_BUILDKIT=1 docker build --platform "$platform" $build_args -t "$image" -f "$root/docker/Dockerfile" "$root"
   container_id=$(docker create --platform "$platform" "$image")
 else
   container_id=$(docker run -d --platform "$platform" public.ecr.aws/amazonlinux/amazonlinux:2023 sleep infinity)
   docker exec "$container_id" sh -c "dnf -y update \
     && dnf -y install curl-minimal unzip jq \
     && dnf clean all"
-  docker exec "$container_id" sh -c "arch=\$(uname -m) \
+  docker exec -e AWSCLI_VERSION="$awscli_version" "$container_id" sh -c "arch=\$(uname -m) \
     && case \"\$arch\" in \
       aarch64) awscli_arch=\"aarch64\" ;; \
       x86_64) awscli_arch=\"x86_64\" ;; \
       *) echo \"Unsupported architecture: \$arch\" >&2; exit 1 ;; \
     esac \
-    && curl -sS \"https://awscli.amazonaws.com/awscli-exe-linux-\${awscli_arch}.zip\" -o \"/tmp/awscliv2.zip\" \
+    && if [ -n \"\$AWSCLI_VERSION\" ]; then \
+      awscli_pkg=\"awscli-exe-linux-\${awscli_arch}-\${AWSCLI_VERSION}.zip\"; \
+    else \
+      awscli_pkg=\"awscli-exe-linux-\${awscli_arch}.zip\"; \
+    fi \
+    && curl -sS \"https://awscli.amazonaws.com/\${awscli_pkg}\" -o \"/tmp/awscliv2.zip\" \
     && cd /tmp \
     && unzip -q awscliv2.zip \
     && ./aws/install -i /opt/aws-cli -b /opt/bin \

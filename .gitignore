@@ -3,6 +3,7 @@
 /layer/opt/
 /layer/arm64/opt/
 /layer/amd64/opt/
+/report/
 .aws-sam/
 packaged.yaml
 packaged-*.yaml
