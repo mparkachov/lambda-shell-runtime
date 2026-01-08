@@ -84,8 +84,7 @@ cat > function.sh <<'SH'
 #!/bin/sh
 
 handler() {
-  event=$1
-  printf '%s' "$event" | jq -c '{ok:true, input:.}'
+  jq -c '{ok:true, input:.}'
 }
 SH
 
@@ -160,8 +159,7 @@ Example handler file (save as `function.sh` in the console editor):
 #!/bin/sh
 
 handler() {
-  event=$1
-  printf '%s' "$event" | jq -c '{ok:true, input:.}'
+  jq -c '{ok:true, input:.}'
 }
 ```
 
@@ -170,9 +168,9 @@ The runtime sources this file; it does not need to be executable.
 ## Handler contract
 
 Your handler is a shell script that defines a function. For example, `_HANDLER=function.handler` loads
-`function.sh` from `LAMBDA_TASK_ROOT` and invokes `handler` with the event JSON as the first argument.
+`function.sh` from `LAMBDA_TASK_ROOT` and invokes `handler` with the event JSON on STDIN.
 
-- reads the event JSON from the first argument
+- reads the event JSON from STDIN
 - writes the response JSON to STDOUT
 - writes logs to STDERR
 

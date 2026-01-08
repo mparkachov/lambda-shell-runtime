@@ -414,14 +414,13 @@ while :; do
   response=$(mktemp)
   stderr_file=$(mktemp)
   if [ "$handler_mode" = "function" ]; then
-    event_data=$(cat "$body")
     if [ "$response_mode" = "streaming" ]; then
-      if ! stream_response "$request_id" "$stderr_file" "$handler_func" "$event_data"; then
+      if ! stream_response "$request_id" "$stderr_file" "$handler_func" < "$body"; then
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
     else
-      if run_with_stderr_capture "$stderr_file" "$handler_func" "$event_data" > "$response"; then
+      if run_with_stderr_capture "$stderr_file" "$handler_func" < "$body" > "$response"; then
         if ! post_response "$request_id" "$response"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1

@@ -1,7 +1,7 @@
 # Examples
 
 This example mirrors the AWS custom runtime tutorial layout while using the runtime from the layer. It defines a
-minimal handler function that reads JSON from the first argument and writes JSON to STDOUT. It also calls
+minimal handler function that reads JSON from STDIN and writes JSON to STDOUT. It also calls
 `aws --version` and `jq` to prove the layer tools are on `PATH`.
 
 ## Build the layer

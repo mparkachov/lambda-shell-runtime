@@ -1,8 +1,6 @@
 # TODO
 
 ## Runtime parity
-- Implement response streaming when `Lambda-Runtime-Function-Response-Mode: streaming` is advertised (API path + streaming POST + tests).
-- Avoid ARG_MAX and trailing-newline loss in `function.handler` mode by passing the event via stdin or a temp file (optionally export a `LAMBDA_RUNTIME_EVENT_FILE`).
 - Isolate handler shell options/env from the runtime loop (e.g., restore `set -e/-u` and `IFS` after sourcing) so handler scripts cannot mutate runtime behavior.
 
 ## Error and payload fidelity

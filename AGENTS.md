@@ -68,7 +68,7 @@ Expected contents at runtime:
 - The runtime implements the standard AWS Lambda Runtime API loop:
   1. Initialize the runtime.
   2. Poll the Runtime API for the next invocation.
-  3. Pass the event payload to the handler (argument for `function.handler`, STDIN for file handlers).
+  3. Pass the event payload to the handler via STDIN.
   4. Read handler STDOUT as the invocation response.
   5. Send the response back to the Runtime API.
 
@@ -79,10 +79,10 @@ The runtime does not transform or reinterpret event or response payloads.
 - The handler name is provided via the `_HANDLER` environment variable.
 - Example: `_HANDLER=function.handler` loads `function.sh` and invokes `handler`.
 - The handler function:
-- Reads the event JSON from the first argument
+- Reads the event JSON from STDIN
 - Writes the response JSON to STDOUT
 - Writes logs to STDERR
-- For compatibility, if `_HANDLER` does not contain a dot, the runtime treats it as a handler file and passes the event via STDIN.
+- For compatibility, if `_HANDLER` does not contain a dot, the runtime treats it as a handler file and runs it with the event on STDIN.
 
 No additional response validation is performed.
 

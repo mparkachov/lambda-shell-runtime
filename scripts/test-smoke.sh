@@ -28,9 +28,16 @@ fi
 
 layer_root="$root/layer/opt"
 
+needs_build=0
 if [ ! -x "$layer_root/bootstrap" ] || \
    [ ! -x "$layer_root/bin/aws" ] || \
    [ ! -x "$layer_root/bin/jq" ]; then
+  needs_build=1
+elif ! cmp -s "$root/runtime/bootstrap" "$layer_root/bootstrap" 2>/dev/null; then
+  needs_build=1
+fi
+
+if [ "$needs_build" -eq 1 ]; then
   build_log=$(mktemp)
   if ! ARCH="$arch" "$root/scripts/build_layer.sh" >"$build_log" 2>&1; then
     cat "$build_log" >&2 || true
