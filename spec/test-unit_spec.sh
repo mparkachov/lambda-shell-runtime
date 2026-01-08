@@ -24,6 +24,11 @@ Describe 'unit tests'
     The status should be success
   End
 
+  It 'escapes error payloads with control characters'
+    When run ./scripts/test-unit.sh handler-exit-escape
+    The status should be success
+  End
+
   It 'exits when response POST fails'
     When run ./scripts/test-unit.sh response-post-failure
     The status should be success

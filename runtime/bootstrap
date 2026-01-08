@@ -69,7 +69,33 @@ make_temp_file() {
 }
 
 json_escape() {
-  printf '%s' "$1" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g'
+  printf '%s' "$1" | od -An -tu1 -v | awk '
+    BEGIN { ORS=""; }
+    {
+      for (i = 1; i <= NF; i++) {
+        b = $i + 0
+        if (b == 34) {
+          printf "\\\""
+        } else if (b == 92) {
+          printf "\\\\"
+        } else if (b == 8) {
+          printf "\\b"
+        } else if (b == 12) {
+          printf "\\f"
+        } else if (b == 10) {
+          printf "\\n"
+        } else if (b == 13) {
+          printf "\\r"
+        } else if (b == 9) {
+          printf "\\t"
+        } else if (b < 32) {
+          printf "\\u%04x", b
+        } else {
+          printf "%c", b
+        }
+      }
+    }
+  '
 }
 
 header_value() {
@@ -122,8 +148,16 @@ build_error_payload() {
 build_init_error_payload() {
   message=$1
   error_type=$2
+  mode=${3:-escaped}
+  if [ "$mode" = "raw" ]; then
+    printf '{"errorMessage":"%s","errorType":"%s","stackTrace":[]}' \
+      "$message" "$error_type"
+    return 0
+  fi
+  escaped_message=$(json_escape "$message")
+  escaped_type=$(json_escape "$error_type")
   printf '{"errorMessage":"%s","errorType":"%s","stackTrace":[]}' \
-    "$message" "$error_type"
+    "$escaped_message" "$escaped_type"
 }
 
 post_runtime_error() {
@@ -193,7 +227,7 @@ post_init_error() {
     return 1
   }
   if [ "$payload_mode" = "raw" ]; then
-    build_init_error_payload "$message" "$error_type" > "$payload"
+    build_init_error_payload "$message" "$error_type" "raw" > "$payload"
   else
     build_error_payload "$message" "$error_type" "[]" > "$payload"
   fi
@@ -334,7 +368,7 @@ if [ -z "$runtime_api" ]; then
   exit 1
 fi
 
-required_tools="curl awk sed tr mktemp mkfifo"
+required_tools="curl awk sed tr od mktemp mkfifo"
 missing_tools=""
 for tool in $required_tools; do
   if ! command_exists "$tool"; then

@@ -3,7 +3,6 @@
 ## Runtime parity
 
 ## Error and payload fidelity
-- Use robust JSON escaping for error payloads (tabs/newlines/control chars) and add regression tests.
 - Validate Runtime API HTTP status codes for `next`, `response`, and `error`; improve diagnostics and decide on retry/backoff behavior.
 
 ## Documentation / usability

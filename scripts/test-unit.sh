@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|response-post-failure|error-post-failure|streaming-response>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|streaming-response>" >&2
   exit 2
 fi
 
@@ -117,6 +117,21 @@ assert_file_equals() {
     printf '%s\n' "Expected $file to be ${expected}, got ${actual}" >&2
     exit 1
   fi
+}
+
+assert_file_contains() {
+  file=$1
+  expected=$2
+  waits=50
+  while [ "$waits" -gt 0 ]; do
+    if grep -F "$expected" "$file" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.05
+    waits=$((waits - 1))
+  done
+  printf '%s\n' "Expected $file to contain: $expected" >&2
+  exit 1
 }
 
 assert_log_contains() {
@@ -260,6 +275,31 @@ HANDLER
     assert_json_field_equals "$response_file" "errorType" "TypeError"
     assert_json_field_equals "$response_file" "errorMessage" "bad input"
     assert_json_array_contains "$response_file" "stackTrace" "line 2"
+    ;;
+  handler-exit-escape)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  printf 'Error: bad\t"quote" \\ slash\n' >&2
+  printf 'trace\tline\001\n' >&2
+  return 3
+}
+HANDLER
+    printf '{"message":"fail"}' > "$event_file"
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    wait_for_file "$endpoint_file"
+    wait_for_file "$header_file"
+    case "$(cat "$endpoint_file")" in
+      */error) ;;
+      *)
+        printf '%s\n' "Unexpected invoke error endpoint: $(cat "$endpoint_file")" >&2
+        exit 1
+        ;;
+    esac
+    assert_file_equals "$header_file" "Unhandled"
+    assert_json_field_equals "$response_file" "errorType" "Error"
+    assert_file_contains "$response_file" '"errorMessage":"bad\t\"quote\" \\ slash"'
+    assert_file_contains "$response_file" '"stackTrace":["trace\tline\u0001"]'
     ;;
   response-post-failure)
     cat <<'HANDLER' > "$workdir/function.sh"
