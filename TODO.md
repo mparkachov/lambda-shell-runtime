@@ -1,7 +1,6 @@
 # TODO
 
 ## Runtime parity
-- Isolate handler shell options/env from the runtime loop (e.g., restore `set -e/-u` and `IFS` after sourcing) so handler scripts cannot mutate runtime behavior.
 
 ## Error and payload fidelity
 - Use robust JSON escaping for error payloads (tabs/newlines/control chars) and add regression tests.

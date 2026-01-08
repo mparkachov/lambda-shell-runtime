@@ -9,6 +9,46 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+restore_runtime_after_handler=0
+runtime_errexit=0
+runtime_nounset=0
+runtime_ifs=
+runtime_ifs_set=1
+
+capture_runtime_state() {
+  runtime_ifs_set=0
+  if [ "${IFS+x}" = "x" ]; then
+    runtime_ifs_set=1
+    runtime_ifs=$IFS
+  fi
+  runtime_errexit=0
+  case $- in
+    *e*) runtime_errexit=1 ;;
+  esac
+  runtime_nounset=0
+  case $- in
+    *u*) runtime_nounset=1 ;;
+  esac
+}
+
+restore_runtime_state() {
+  if [ "$runtime_ifs_set" -eq 1 ]; then
+    IFS=$runtime_ifs
+  else
+    unset IFS
+  fi
+  if [ "$runtime_errexit" -eq 1 ]; then
+    set -e
+  else
+    set +e
+  fi
+  if [ "$runtime_nounset" -eq 1 ]; then
+    set -u
+  else
+    set +u
+  fi
+}
+
 make_temp_file() {
   if command_exists mktemp; then
     mktemp
@@ -252,6 +292,9 @@ run_with_stderr_capture() {
   tee_pid=$!
   "$@" 2> "$stderr_pipe"
   status=$?
+  if [ "$restore_runtime_after_handler" -eq 1 ]; then
+    restore_runtime_state
+  fi
   wait "$tee_pid" >/dev/null 2>&1 || true
   rm -f "$stderr_pipe"
   return "$status"
@@ -348,6 +391,7 @@ case "$handler_basename" in
       post_init_error "Handler script not readable: $handler_path" "Runtime.InvalidHandler"
       exit 1
     fi
+    capture_runtime_state
     if ! . "$handler_path"; then
       post_init_error "Failed to load handler script: $handler_path" "Runtime.InvalidHandler"
       exit 1
@@ -356,6 +400,8 @@ case "$handler_basename" in
       post_init_error "Handler function not found: $handler_func" "Runtime.InvalidHandler"
       exit 1
     fi
+    restore_runtime_state
+    restore_runtime_after_handler=1
     handler_mode="function"
     ;;
   *)
