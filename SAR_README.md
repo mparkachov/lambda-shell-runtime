@@ -185,6 +185,28 @@ Execution modes:
 
 The runtime does not transform the event or response payload.
 
+## Remaining time helper
+
+`LAMBDA_RUNTIME_DEADLINE_MS` is an epoch time in milliseconds. The helper below returns the remaining time in
+milliseconds for POSIX `sh` handlers.
+
+```sh
+remaining_time_ms() {
+  if [ -z "${LAMBDA_RUNTIME_DEADLINE_MS:-}" ]; then
+    return 1
+  fi
+  now_ms=$(date +%s%3N 2>/dev/null || true)
+  case "$now_ms" in
+    ''|*[!0-9]*)
+      now_ms=$(( $(date +%s) * 1000 ))
+      ;;
+  esac
+  printf '%s\n' "$((LAMBDA_RUNTIME_DEADLINE_MS - now_ms))"
+}
+```
+
+On AL2023, `date` supports `%s` and `%3N`. If `%3N` is unavailable, the helper falls back to second precision.
+
 ## Versioning
 
 The SAR `SemanticVersion` matches the bundled AWS CLI v2 version.
