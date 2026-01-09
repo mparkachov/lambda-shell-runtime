@@ -48,6 +48,11 @@ Describe 'unit tests'
     When run ./scripts/test-unit.sh env-var-cleanup
     The status should be success
   End
+
+  It 'logs X-Ray segment when sampled'
+    When run ./scripts/test-unit.sh xray-segment-log
+    The status should be success
+  End
 End
 
 Describe 'response streaming'

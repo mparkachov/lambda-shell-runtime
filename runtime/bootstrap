@@ -14,6 +14,14 @@ runtime_errexit=0
 runtime_nounset=0
 runtime_ifs=
 runtime_ifs_set=1
+xray_enabled=0
+xray_trace_root=
+xray_trace_parent=
+xray_trace_sampled=
+xray_segment_id=
+xray_segment_start_ms=
+xray_segment_end_ms=
+stream_handler_status=0
 
 capture_runtime_state() {
   runtime_ifs_set=0
@@ -103,6 +111,140 @@ header_value() {
   header_name=$2
   awk -F': ' -v target="$(printf '%s' "$header_name" | tr '[:upper:]' '[:lower:]')" \
     'tolower($1)==target {print $2; exit}' "$headers_file" | tr -d '\r'
+}
+
+reset_xray_state() {
+  xray_enabled=0
+  xray_trace_root=
+  xray_trace_parent=
+  xray_trace_sampled=
+  xray_segment_id=
+  xray_segment_start_ms=
+  xray_segment_end_ms=
+}
+
+parse_xray_trace_header() {
+  header=$1
+  if [ -z "$header" ]; then
+    return 0
+  fi
+  old_ifs=$IFS
+  IFS=';'
+  set -- $header
+  IFS=$old_ifs
+  for part in "$@"; do
+    case "$part" in
+      Root=*) xray_trace_root=${part#Root=} ;;
+      Parent=*) xray_trace_parent=${part#Parent=} ;;
+      Sampled=*) xray_trace_sampled=${part#Sampled=} ;;
+    esac
+  done
+  if [ -n "$xray_trace_root" ] && [ "$xray_trace_sampled" = "1" ]; then
+    xray_enabled=1
+  fi
+}
+
+xray_now_ms() {
+  if ! command_exists date; then
+    return 1
+  fi
+  now_ms=$(date +%s%3N 2>/dev/null || true)
+  case "$now_ms" in
+    ''|*[!0-9]*)
+      now_ms=$(date +%s 2>/dev/null || true)
+      case "$now_ms" in
+        ''|*[!0-9]*) return 1 ;;
+      esac
+      now_ms=$((now_ms * 1000))
+      ;;
+  esac
+  printf '%s' "$now_ms"
+}
+
+xray_format_time() {
+  ms=$1
+  case "$ms" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  sec=$((ms / 1000))
+  msec=$((ms % 1000))
+  printf '%s.%03d' "$sec" "$msec"
+}
+
+xray_generate_segment_id() {
+  segment_id=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  if [ -n "$segment_id" ]; then
+    printf '%s' "$segment_id"
+    return 0
+  fi
+  fallback=
+  if command_exists date; then
+    fallback=$(date +%s 2>/dev/null || true)
+  fi
+  case "$fallback" in
+    ''|*[!0-9]*) fallback=$$ ;;
+  esac
+  printf '%016x' "$fallback"
+}
+
+xray_start_segment() {
+  if [ "$xray_enabled" -ne 1 ]; then
+    return 0
+  fi
+  xray_segment_id=$(xray_generate_segment_id)
+  xray_segment_start_ms=$(xray_now_ms 2>/dev/null || true)
+  if [ -z "$xray_segment_start_ms" ]; then
+    xray_enabled=0
+    return 1
+  fi
+  return 0
+}
+
+xray_finish_segment() {
+  if [ "$xray_enabled" -ne 1 ]; then
+    return 0
+  fi
+  xray_segment_end_ms=$(xray_now_ms 2>/dev/null || true)
+  if [ -z "$xray_segment_end_ms" ]; then
+    xray_enabled=0
+    return 1
+  fi
+  return 0
+}
+
+xray_log_segment() {
+  handler_status=${1:-0}
+  if [ "$xray_enabled" -ne 1 ]; then
+    return 0
+  fi
+  if [ -z "$xray_segment_start_ms" ] || [ -z "$xray_segment_end_ms" ]; then
+    return 0
+  fi
+  start_time=$(xray_format_time "$xray_segment_start_ms") || return 0
+  end_time=$(xray_format_time "$xray_segment_end_ms") || return 0
+  segment_id=$xray_segment_id
+  if [ -z "$segment_id" ]; then
+    segment_id=$(xray_generate_segment_id)
+  fi
+  name=${AWS_LAMBDA_FUNCTION_NAME:-}
+  if [ -z "$name" ]; then
+    name=${LAMBDA_RUNTIME_INVOKED_FUNCTION_ARN:-lambda}
+  fi
+  escaped_name=$(json_escape "$name")
+  escaped_trace=$(json_escape "$xray_trace_root")
+  escaped_segment_id=$(json_escape "$segment_id")
+  segment=$(printf '{"trace_id":"%s","id":"%s","start_time":%s,"end_time":%s,"name":"%s"' \
+    "$escaped_trace" "$escaped_segment_id" "$start_time" "$end_time" "$escaped_name")
+  if [ -n "$xray_trace_parent" ]; then
+    escaped_parent=$(json_escape "$xray_trace_parent")
+    segment="${segment},\"parent_id\":\"${escaped_parent}\""
+  fi
+  if [ "$handler_status" -ne 0 ]; then
+    segment="${segment},\"fault\":true"
+  fi
+  segment="${segment}}"
+  log "X-Ray segment: $segment"
+  return 0
 }
 
 log_runtime_api_body() {
@@ -327,13 +469,16 @@ stream_response() {
   stderr_file=$2
   shift 2
 
+  stream_handler_status=0
   response_pipe=$(make_temp_file) || {
     log "Failed to create response pipe"
+    stream_handler_status=1
     return 1
   }
   rm -f "$response_pipe"
   if ! mkfifo "$response_pipe"; then
     log "Failed to create response pipe"
+    stream_handler_status=1
     return 1
   fi
 
@@ -347,6 +492,7 @@ stream_response() {
   else
     handler_exit=$?
   fi
+  stream_handler_status=$handler_exit
 
   if wait "$post_pid"; then
     post_status=0
@@ -551,24 +697,40 @@ while :; do
   set_invocation_env "LAMBDA_RUNTIME_COGNITO_IDENTITY" "$cognito_identity"
   set_invocation_env "_X_AMZN_TRACE_ID" "$trace_id"
 
+  reset_xray_state
+  parse_xray_trace_header "$trace_id"
+
   response=$(mktemp)
   stderr_file=$(mktemp)
+  xray_start_segment
   if [ "$handler_mode" = "function" ]; then
     if [ "$response_mode" = "streaming" ]; then
       if ! stream_response "$request_id" "$stderr_file" "$handler_func" < "$body"; then
+        handler_exit=$stream_handler_status
+        xray_finish_segment
+        xray_log_segment "$handler_exit"
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
+      handler_exit=$stream_handler_status
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
     else
       if run_with_stderr_capture "$stderr_file" "$handler_func" < "$body" > "$response"; then
+        handler_exit=0
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+      fi
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
+      if [ "$handler_exit" -eq 0 ]; then
         if ! post_response "$request_id" "$response"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1
         fi
       else
-        handler_exit=$?
-        log "Handler exited with status ${handler_exit}"
-        set_error_from_stderr "$stderr_file" "$handler_exit"
         if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1
@@ -578,19 +740,31 @@ while :; do
   elif [ "$handler_mode" = "executable" ]; then
     if [ "$response_mode" = "streaming" ]; then
       if ! stream_response "$request_id" "$stderr_file" "$handler_path" < "$body"; then
+        handler_exit=$stream_handler_status
+        xray_finish_segment
+        xray_log_segment "$handler_exit"
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
+      handler_exit=$stream_handler_status
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
     else
       if run_with_stderr_capture "$stderr_file" "$handler_path" < "$body" > "$response"; then
+        handler_exit=0
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+      fi
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
+      if [ "$handler_exit" -eq 0 ]; then
         if ! post_response "$request_id" "$response"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1
         fi
       else
-        handler_exit=$?
-        log "Handler exited with status ${handler_exit}"
-        set_error_from_stderr "$stderr_file" "$handler_exit"
         if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1
@@ -600,19 +774,31 @@ while :; do
   else
     if [ "$response_mode" = "streaming" ]; then
       if ! stream_response "$request_id" "$stderr_file" sh "$handler_path" < "$body"; then
+        handler_exit=$stream_handler_status
+        xray_finish_segment
+        xray_log_segment "$handler_exit"
         rm -f "$headers" "$body" "$response" "$stderr_file"
         exit 1
       fi
+      handler_exit=$stream_handler_status
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
     else
       if run_with_stderr_capture "$stderr_file" sh "$handler_path" < "$body" > "$response"; then
+        handler_exit=0
+      else
+        handler_exit=$?
+        log "Handler exited with status ${handler_exit}"
+        set_error_from_stderr "$stderr_file" "$handler_exit"
+      fi
+      xray_finish_segment
+      xray_log_segment "$handler_exit"
+      if [ "$handler_exit" -eq 0 ]; then
         if ! post_response "$request_id" "$response"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1
         fi
       else
-        handler_exit=$?
-        log "Handler exited with status ${handler_exit}"
-        set_error_from_stderr "$stderr_file" "$handler_exit"
         if ! post_invoke_error "$request_id" "$error_message" "$error_type" "$stack_trace"; then
           rm -f "$headers" "$body" "$response" "$stderr_file"
           exit 1

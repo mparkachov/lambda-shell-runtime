@@ -78,6 +78,9 @@ For each invocation, the runtime maps Runtime API headers to environment variabl
 The runtime also sets `_X_AMZN_TRACE_ID` to the trace header value when present. Client context and Cognito identity
 are passed through as received (base64-encoded JSON per the Runtime API). Values are unset between invocations.
 
+When the trace header is present and sampled (`Sampled=1`), the runtime logs a minimal X-Ray segment JSON to STDERR
+(prefixed with `X-Ray segment:`). This is for visibility only; it does not send segments to the X-Ray daemon.
+
 ## Remaining time helper
 
 `LAMBDA_RUNTIME_DEADLINE_MS` is an epoch time in milliseconds. The helper below returns the remaining time in

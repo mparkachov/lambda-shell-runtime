@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|streaming-response>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|xray-segment-log|streaming-response>" >&2
   exit 2
 fi
 
@@ -434,6 +434,20 @@ HANDLER
       printf '%s\n' "Expected trace id to be unset on second invocation" >&2
       exit 1
     fi
+    ;;
+  xray-segment-log)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  printf '%s\n' '{"ok":true}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=1"
+    MOCK_NEXT_TRACE_ID="$trace_id"
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    assert_log_contains "X-Ray segment:"
+    assert_log_contains "1-abcdef01-234567890abcdef01234567"
     ;;
   streaming-response)
     cat <<'HANDLER' > "$workdir/function.sh"
