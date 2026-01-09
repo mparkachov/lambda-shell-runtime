@@ -105,6 +105,65 @@ header_value() {
     'tolower($1)==target {print $2; exit}' "$headers_file" | tr -d '\r'
 }
 
+log_runtime_api_body() {
+  body_file=$1
+  if [ -s "$body_file" ]; then
+    body=$(tr -d '\r' < "$body_file" | tr '\n' ' ')
+    if [ -n "$body" ]; then
+      log "Runtime API response body: $body"
+    fi
+  fi
+}
+
+is_retryable_http_code() {
+  case "$1" in
+    429|500|502|503|504) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+fetch_next_invocation() {
+  headers_file=$1
+  body_file=$2
+  attempt=1
+  delay=$next_retry_delay
+  while :; do
+    http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w '%{http_code}' \
+      "http://${runtime_api}/2018-06-01/runtime/invocation/next")
+    curl_status=$?
+    if [ "$curl_status" -eq 0 ] && [ "$http_code" = "$runtime_next_expected_code" ]; then
+      return 0
+    fi
+
+    if [ "$curl_status" -ne 0 ]; then
+      log "Failed to fetch next invocation (curl status $curl_status)"
+      retryable=1
+    else
+      log "Unexpected response from Runtime API /next (HTTP $http_code, expected $runtime_next_expected_code)"
+      log_runtime_api_body "$body_file"
+      if is_retryable_http_code "$http_code"; then
+        retryable=1
+      else
+        retryable=0
+      fi
+    fi
+
+    if [ "$retryable" -eq 0 ] || [ "$attempt" -ge "$next_retry_max" ]; then
+      return 1
+    fi
+
+    log "Retrying Runtime API /next in ${delay}s"
+    sleep "$delay"
+    if [ "$delay" -lt "$next_retry_max_delay" ]; then
+      delay=$((delay * 2))
+      if [ "$delay" -gt "$next_retry_max_delay" ]; then
+        delay=$next_retry_max_delay
+      fi
+    fi
+    attempt=$((attempt + 1))
+  done
+}
+
 set_invocation_env() {
   name=$1
   value=$2
@@ -168,15 +227,14 @@ post_runtime_error() {
     --data-binary "@$payload" "$url")
   curl_status=$?
   if [ "$curl_status" -ne 0 ]; then
-    http_code=000
+    log "Failed to post runtime error to $url (curl status $curl_status)"
+    return 1
   fi
-  case "$http_code" in
-    2??) return 0 ;;
-    *)
-      log "Failed to post runtime error to $url (HTTP $http_code)"
-      return 1
-      ;;
-  esac
+  if [ "$http_code" != "$runtime_post_expected_code" ]; then
+    log "Failed to post runtime error to $url (HTTP $http_code, expected $runtime_post_expected_code)"
+    return 1
+  fi
+  return 0
 }
 
 post_runtime_response() {
@@ -186,15 +244,14 @@ post_runtime_response() {
     --data-binary "@$payload" "$url")
   curl_status=$?
   if [ "$curl_status" -ne 0 ]; then
-    http_code=000
+    log "Failed to post runtime response to $url (curl status $curl_status)"
+    return 1
   fi
-  case "$http_code" in
-    2??) return 0 ;;
-    *)
-      log "Failed to post runtime response to $url (HTTP $http_code)"
-      return 1
-      ;;
-  esac
+  if [ "$http_code" != "$runtime_post_expected_code" ]; then
+    log "Failed to post runtime response to $url (HTTP $http_code, expected $runtime_post_expected_code)"
+    return 1
+  fi
+  return 0
 }
 
 post_streaming_response() {
@@ -207,15 +264,14 @@ post_streaming_response() {
     --data-binary @- "$url" < "$payload")
   curl_status=$?
   if [ "$curl_status" -ne 0 ]; then
-    http_code=000
+    log "Failed to post runtime streaming response to $url (curl status $curl_status)"
+    return 1
   fi
-  case "$http_code" in
-    2??) return 0 ;;
-    *)
-      log "Failed to post runtime streaming response to $url (HTTP $http_code)"
-      return 1
-      ;;
-  esac
+  if [ "$http_code" != "$runtime_post_expected_code" ]; then
+    log "Failed to post runtime streaming response to $url (HTTP $http_code, expected $runtime_post_expected_code)"
+    return 1
+  fi
+  return 0
 }
 
 post_init_error() {
@@ -362,13 +418,19 @@ set_error_from_stderr() {
   fi
 }
 
+runtime_next_expected_code=200
+runtime_post_expected_code=202
+next_retry_max=3
+next_retry_delay=1
+next_retry_max_delay=4
+
 runtime_api=${AWS_LAMBDA_RUNTIME_API:-}
 if [ -z "$runtime_api" ]; then
   log "AWS_LAMBDA_RUNTIME_API is not set"
   exit 1
 fi
 
-required_tools="curl awk sed tr od mktemp mkfifo"
+required_tools="curl awk sed tr od mktemp mkfifo sleep"
 missing_tools=""
 for tool in $required_tools; do
   if ! command_exists "$tool"; then
@@ -463,9 +525,7 @@ while :; do
   headers=$(mktemp)
   body=$(mktemp)
 
-  if ! curl -sS -D "$headers" -o "$body" \
-    "http://${runtime_api}/2018-06-01/runtime/invocation/next"; then
-    log "Failed to fetch next invocation"
+  if ! fetch_next_invocation "$headers" "$body"; then
     rm -f "$headers" "$body"
     exit 1
   fi

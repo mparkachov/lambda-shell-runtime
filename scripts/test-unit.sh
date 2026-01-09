@@ -176,6 +176,9 @@ run_bootstrap() {
   MOCK_RESPONSE_CODE="${MOCK_RESPONSE_CODE:-}" \
   MOCK_ERROR_CODE="${MOCK_ERROR_CODE:-}" \
   MOCK_INIT_ERROR_CODE="${MOCK_INIT_ERROR_CODE:-}" \
+  MOCK_NEXT_CODE="${MOCK_NEXT_CODE:-}" \
+  MOCK_NEXT_BODY="${MOCK_NEXT_BODY:-}" \
+  MOCK_NEXT_BODY_FILE="${MOCK_NEXT_BODY_FILE:-}" \
   "$bootstrap" >"$log_file" 2>&1 &
   bootstrap_pid=$!
 }

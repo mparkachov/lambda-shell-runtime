@@ -90,20 +90,39 @@ request_id=${MOCK_REQUEST_ID:-test-invocation-id}
 case "$path" in
   /2018-06-01/runtime/invocation/next)
     event_file=${MOCK_EVENT_FILE:-}
-    if [ -z "$event_file" ] || [ ! -f "$event_file" ]; then
-      exit 1
-    fi
-    if [ -n "$output_file" ]; then
-      cat "$event_file" > "$output_file"
-    fi
-    if [ -n "$header_file" ]; then
-      {
-        printf '%s\n' "Lambda-Runtime-Aws-Request-Id: $request_id"
-        printf '%s\n' "Lambda-Runtime-Deadline-Ms: 0"
-        if [ -n "${MOCK_RESPONSE_MODE:-}" ]; then
-          printf '%s\n' "Lambda-Runtime-Function-Response-Mode: ${MOCK_RESPONSE_MODE}"
+    code=${MOCK_NEXT_CODE:-200}
+    if [ "$code" = "200" ]; then
+      if [ -z "$event_file" ] || [ ! -f "$event_file" ]; then
+        exit 1
+      fi
+      if [ -n "$output_file" ]; then
+        cat "$event_file" > "$output_file"
+      fi
+      if [ -n "$header_file" ]; then
+        {
+          printf '%s\n' "Lambda-Runtime-Aws-Request-Id: $request_id"
+          printf '%s\n' "Lambda-Runtime-Deadline-Ms: 0"
+          if [ -n "${MOCK_RESPONSE_MODE:-}" ]; then
+            printf '%s\n' "Lambda-Runtime-Function-Response-Mode: ${MOCK_RESPONSE_MODE}"
+          fi
+        } > "$header_file"
+      fi
+    else
+      if [ -n "$output_file" ]; then
+        if [ -n "${MOCK_NEXT_BODY_FILE:-}" ] && [ -f "$MOCK_NEXT_BODY_FILE" ]; then
+          cat "$MOCK_NEXT_BODY_FILE" > "$output_file"
+        elif [ -n "${MOCK_NEXT_BODY:-}" ]; then
+          printf '%s' "$MOCK_NEXT_BODY" > "$output_file"
+        else
+          : > "$output_file"
         fi
-      } > "$header_file"
+      fi
+      if [ -n "$header_file" ]; then
+        : > "$header_file"
+      fi
+    fi
+    if [ -n "$write_out" ]; then
+      printf '%s' "$code"
     fi
     exit 0
     ;;

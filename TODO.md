@@ -2,9 +2,6 @@
 
 ## Runtime parity
 
-## Error and payload fidelity
-- Validate Runtime API HTTP status codes for `next`, `response`, and `error`; improve diagnostics and decide on retry/backoff behavior.
-
 ## Documentation / usability
 - Document handler execution modes clearly (sourced POSIX `sh` for `function.handler`; bash requires executable handler).
 - Document or provide a tiny helper for computing remaining time from `LAMBDA_RUNTIME_DEADLINE_MS` (context parity).
