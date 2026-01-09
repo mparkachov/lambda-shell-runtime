@@ -42,8 +42,13 @@ The handler is a shell script in the function package. `_HANDLER` follows the `f
 AWS custom runtime tutorial. For example, `_HANDLER=function.handler` loads `function.sh` from `LAMBDA_TASK_ROOT`,
 then invokes the `handler` shell function with the event JSON on STDIN.
 
-For compatibility, if `_HANDLER` does not contain a dot, the runtime treats it as a handler file. If the file is
-executable, it is run directly. If not, the runtime invokes it with `/bin/sh`.
+Execution modes:
+
+- `function.handler`: the runtime sources `function.sh` with `/bin/sh` and invokes the `handler` function. The file
+  does not need to be executable and must use POSIX `sh` syntax.
+- `handler` (no dot): the runtime treats `_HANDLER` as a handler file path. If the file is executable, it is run
+  directly (shebang honored). If not, the runtime invokes it with `/bin/sh`. Use this mode for bash by making the
+  handler executable and starting it with `#!/bin/bash`.
 
 The runtime:
 

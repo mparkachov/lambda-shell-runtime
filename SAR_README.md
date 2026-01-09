@@ -149,7 +149,7 @@ This runtime already provides the `bootstrap` in the layer. Your function packag
 Console checklist:
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64` (must match the layer you attached)
-- Handler: `function.handler` (script file is `function.sh`)
+- Handler: `function.handler` (script file is `function.sh`, sourced by `/bin/sh`)
 - Layers: add the layer ARN from the SAR stack output
 - Performance: the AWS CLI layer is large; cold starts can be slow at 128 MB. Raising memory (for example, to 512 MB) and retrying a second invocation yields faster runs.
 
@@ -163,12 +163,21 @@ handler() {
 }
 ```
 
-The runtime sources this file; it does not need to be executable.
+The runtime sources this file; it does not need to be executable. If you want bash, make the handler file executable,
+set a `#!/bin/bash` shebang, and set the Lambda handler to the filename (no dot).
 
 ## Handler contract
 
 Your handler is a shell script that defines a function. For example, `_HANDLER=function.handler` loads
 `function.sh` from `LAMBDA_TASK_ROOT` and invokes `handler` with the event JSON on STDIN.
+
+Execution modes:
+
+- `function.handler`: the runtime sources `function.sh` with `/bin/sh` and invokes the `handler` function. The file
+  does not need to be executable and must use POSIX `sh` syntax.
+- `handler` (no dot): the runtime treats `_HANDLER` as a handler file path. If the file is executable, it is run
+  directly (shebang honored). If not, the runtime invokes it with `/bin/sh`. Use this mode for bash by making the
+  handler executable and starting it with `#!/bin/bash`.
 
 - reads the event JSON from STDIN
 - writes the response JSON to STDOUT

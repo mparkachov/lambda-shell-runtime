@@ -56,7 +56,7 @@ at the packaged zips.
 
 - Runtime: `provided.al2023`
 - Architecture: `arm64` or `x86_64`
-- Handler: `function.handler` (script stored as `function.sh` in your function package)
+- Handler: `function.handler` (script stored as `function.sh`, sourced by `/bin/sh`; bash requires an executable handler file)
 
 See [SAR_README.md](SAR_README.md) for end-user SAR installation and quick start, [USAGE.md](USAGE.md) for manual publishing and the runtime contract, [DEVELOPMENT.md](DEVELOPMENT.md) for build and release workflow, and [examples/README.md](examples/README.md) for a deployable example.
 
