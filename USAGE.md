@@ -78,8 +78,9 @@ For each invocation, the runtime maps Runtime API headers to environment variabl
 The runtime also sets `_X_AMZN_TRACE_ID` to the trace header value when present. Client context and Cognito identity
 are passed through as received (base64-encoded JSON per the Runtime API). Values are unset between invocations.
 
-When the trace header is present and sampled (`Sampled=1`), the runtime logs a minimal X-Ray segment JSON to STDERR
-(prefixed with `X-Ray segment:`). This is for visibility only; it does not send segments to the X-Ray daemon.
+When the trace header is present, sampled (`Sampled=1`), and `AWS_XRAY_DAEMON_ADDRESS` is set, the runtime logs a
+minimal X-Ray segment JSON to STDERR (prefixed with `X-Ray segment:`). This is for visibility only; it does not send
+segments to the X-Ray daemon.
 
 ## Remaining time helper
 
@@ -110,6 +111,7 @@ The runtime depends only on AWS-defined environment variables:
 - `AWS_LAMBDA_RUNTIME_API`: host:port for the Runtime API
 - `_HANDLER`: handler identifier (`function.handler` or a handler filename)
 - `LAMBDA_TASK_ROOT`: function code directory (defaults to `/var/task`)
+- `AWS_XRAY_DAEMON_ADDRESS`: X-Ray daemon address (when present, enables segment log output)
 - `_X_AMZN_TRACE_ID`: X-Ray trace header for the current invocation (set by the runtime when provided)
 
 The runtime does not modify `PATH` or `LD_LIBRARY_PATH`. Lambda already includes `/opt/bin` and `/opt/lib` in the default environment for layers.

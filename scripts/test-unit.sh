@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|xray-segment-log|streaming-response>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|xray-segment-log|xray-segment-log-disabled|streaming-response>" >&2
   exit 2
 fi
 
@@ -182,6 +182,7 @@ run_bootstrap() {
   AWS_LAMBDA_RUNTIME_API="mock" \
   LAMBDA_TASK_ROOT="$workdir" \
   _HANDLER="$1" \
+  AWS_XRAY_DAEMON_ADDRESS="${MOCK_XRAY_DAEMON_ADDRESS:-}" \
   PATH="$mock_bin:$PATH" \
   MOCK_EVENT_FILE="$event_file" \
   MOCK_RESPONSE_FILE="$response_file" \
@@ -444,10 +445,27 @@ HANDLER
     printf '{"message":"ok"}' > "$event_file"
     trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=1"
     MOCK_NEXT_TRACE_ID="$trace_id"
+    MOCK_XRAY_DAEMON_ADDRESS="127.0.0.1:2000"
     run_bootstrap "function.handler"
     wait_for_file "$response_file"
     assert_log_contains "X-Ray segment:"
     assert_log_contains "1-abcdef01-234567890abcdef01234567"
+    ;;
+  xray-segment-log-disabled)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  printf '%s\n' '{"ok":true}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=1"
+    MOCK_NEXT_TRACE_ID="$trace_id"
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    if grep -F "X-Ray segment:" "$log_file" >/dev/null 2>&1; then
+      printf '%s\n' "Expected X-Ray segment log to be disabled" >&2
+      exit 1
+    fi
     ;;
   streaming-response)
     cat <<'HANDLER' > "$workdir/function.sh"

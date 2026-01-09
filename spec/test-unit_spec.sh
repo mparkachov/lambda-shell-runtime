@@ -53,6 +53,11 @@ Describe 'unit tests'
     When run ./scripts/test-unit.sh xray-segment-log
     The status should be success
   End
+
+  It 'skips X-Ray segment log without daemon address'
+    When run ./scripts/test-unit.sh xray-segment-log-disabled
+    The status should be success
+  End
 End
 
 Describe 'response streaming'

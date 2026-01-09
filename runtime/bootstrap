@@ -139,7 +139,8 @@ parse_xray_trace_header() {
       Sampled=*) xray_trace_sampled=${part#Sampled=} ;;
     esac
   done
-  if [ -n "$xray_trace_root" ] && [ "$xray_trace_sampled" = "1" ]; then
+  if [ -n "$xray_trace_root" ] && [ "$xray_trace_sampled" = "1" ] && \
+    [ -n "${AWS_XRAY_DAEMON_ADDRESS:-}" ]; then
     xray_enabled=1
   fi
 }
