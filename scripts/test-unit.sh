@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|streaming-response>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|streaming-response>" >&2
   exit 2
 fi
 
@@ -41,6 +41,23 @@ wait_for_file() {
     waits=$((waits - 1))
   done
   [ -s "$file" ]
+}
+
+wait_for_lines() {
+  file=$1
+  expected=$2
+  waits=100
+  while [ "$waits" -gt 0 ]; do
+    if [ -f "$file" ]; then
+      count=$(wc -l < "$file" | tr -d ' ')
+      if [ "$count" -ge "$expected" ]; then
+        return 0
+      fi
+    fi
+    sleep 0.1
+    waits=$((waits - 1))
+  done
+  return 1
 }
 
 json_get_string() {
@@ -179,6 +196,9 @@ run_bootstrap() {
   MOCK_NEXT_CODE="${MOCK_NEXT_CODE:-}" \
   MOCK_NEXT_BODY="${MOCK_NEXT_BODY:-}" \
   MOCK_NEXT_BODY_FILE="${MOCK_NEXT_BODY_FILE:-}" \
+  MOCK_NEXT_COUNT_FILE="${MOCK_NEXT_COUNT_FILE:-}" \
+  MOCK_NEXT_TRACE_ID="${MOCK_NEXT_TRACE_ID:-}" \
+  MOCK_NEXT_TRACE_ID_ONCE="${MOCK_NEXT_TRACE_ID_ONCE:-}" \
   "$bootstrap" >"$log_file" 2>&1 &
   bootstrap_pid=$!
 }
@@ -364,6 +384,56 @@ HANDLER
     esac
     assert_file_equals "$header_file" "Unhandled"
     assert_log_contains "Failed to post runtime error"
+    ;;
+  large-payload)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  bytes=$(wc -c | tr -d ' ')
+  printf '{"bytes":"%s"}' "$bytes"
+}
+HANDLER
+    payload_size=1048576
+    printf '{"data":"' > "$event_file"
+    awk -v size="$payload_size" 'BEGIN { for (i = 0; i < size; i++) printf "a" }' >> "$event_file"
+    printf '"}' >> "$event_file"
+    expected_bytes=$(wc -c < "$event_file" | tr -d ' ')
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    assert_json_field_equals "$response_file" "bytes" "$expected_bytes"
+    ;;
+  env-var-cleanup)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  log_file="${LAMBDA_TASK_ROOT}/env-log"
+  if [ "${LAMBDA_RUNTIME_TRACE_ID+x}" = "x" ]; then
+    printf '%s\n' "$LAMBDA_RUNTIME_TRACE_ID" >> "$log_file"
+  else
+    printf '%s\n' "UNSET" >> "$log_file"
+  fi
+  printf '%s\n' '{"ok":true}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=1"
+    MOCK_NEXT_TRACE_ID="$trace_id"
+    MOCK_NEXT_TRACE_ID_ONCE=1
+    MOCK_NEXT_COUNT_FILE="$workdir/next-count"
+    run_bootstrap "function.handler"
+    env_log="$workdir/env-log"
+    if ! wait_for_lines "$env_log" 2; then
+      printf '%s\n' "Expected env log to contain two invocations" >&2
+      exit 1
+    fi
+    line1=$(sed -n '1p' "$env_log")
+    line2=$(sed -n '2p' "$env_log")
+    if [ "$line1" != "$trace_id" ]; then
+      printf '%s\n' "Expected first invocation trace id to be set" >&2
+      exit 1
+    fi
+    if [ "$line2" != "UNSET" ]; then
+      printf '%s\n' "Expected trace id to be unset on second invocation" >&2
+      exit 1
+    fi
     ;;
   streaming-response)
     cat <<'HANDLER' > "$workdir/function.sh"

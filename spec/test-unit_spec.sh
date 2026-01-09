@@ -38,6 +38,16 @@ Describe 'unit tests'
     When run ./scripts/test-unit.sh error-post-failure
     The status should be success
   End
+
+  It 'handles large payloads'
+    When run ./scripts/test-unit.sh large-payload
+    The status should be success
+  End
+
+  It 'cleans invocation env vars between invocations'
+    When run ./scripts/test-unit.sh env-var-cleanup
+    The status should be success
+  End
 End
 
 Describe 'response streaming'
