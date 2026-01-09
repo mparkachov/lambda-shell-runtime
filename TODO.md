@@ -1,9 +1,8 @@
 # TODO
 
 ## Runtime parity
+- Add X-Ray integration support (trace header propagation, optional segment logging).
 
 ## Documentation / usability
 
 ## Testing
-- Add tests for large payload handling and env var cleanup between invocations.
-- Optionally add LocalStack tests for end-to-end Lambda + AWS service calls.
