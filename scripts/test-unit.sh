@@ -6,7 +6,7 @@ bootstrap="$root/runtime/bootstrap"
 
 case_name=${1:-}
 if [ -z "$case_name" ]; then
-  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|xray-segment-log|xray-segment-log-disabled|streaming-response>" >&2
+  printf '%s\n' "Usage: $0 <missing-handler-file|missing-handler-function|unreadable-handler|handler-exit|handler-exit-stderr|handler-exit-escape|response-post-failure|error-post-failure|large-payload|env-var-cleanup|xray-trace-env|xray-segment-log|xray-segment-unsampled|xray-segment-log-disabled|streaming-response>" >&2
   exit 2
 fi
 
@@ -436,6 +436,40 @@ HANDLER
       exit 1
     fi
     ;;
+  xray-trace-env)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  log_file="${LAMBDA_TASK_ROOT}/env-log"
+  if [ "${_X_AMZN_TRACE_ID+x}" = "x" ]; then
+    printf '%s\n' "$_X_AMZN_TRACE_ID" >> "$log_file"
+  else
+    printf '%s\n' "UNSET" >> "$log_file"
+  fi
+  printf '%s\n' '{"ok":true}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=1"
+    MOCK_NEXT_TRACE_ID="$trace_id"
+    MOCK_NEXT_TRACE_ID_ONCE=1
+    MOCK_NEXT_COUNT_FILE="$workdir/next-count"
+    run_bootstrap "function.handler"
+    env_log="$workdir/env-log"
+    if ! wait_for_lines "$env_log" 2; then
+      printf '%s\n' "Expected env log to contain two invocations" >&2
+      exit 1
+    fi
+    line1=$(sed -n '1p' "$env_log")
+    line2=$(sed -n '2p' "$env_log")
+    if [ "$line1" != "$trace_id" ]; then
+      printf '%s\n' "Expected first invocation _X_AMZN_TRACE_ID to be set" >&2
+      exit 1
+    fi
+    if [ "$line2" != "UNSET" ]; then
+      printf '%s\n' "Expected _X_AMZN_TRACE_ID to be unset on second invocation" >&2
+      exit 1
+    fi
+    ;;
   xray-segment-log)
     cat <<'HANDLER' > "$workdir/function.sh"
 handler() {
@@ -450,6 +484,23 @@ HANDLER
     wait_for_file "$response_file"
     assert_log_contains "X-Ray segment:"
     assert_log_contains "1-abcdef01-234567890abcdef01234567"
+    ;;
+  xray-segment-unsampled)
+    cat <<'HANDLER' > "$workdir/function.sh"
+handler() {
+  printf '%s\n' '{"ok":true}'
+}
+HANDLER
+    printf '{"message":"ok"}' > "$event_file"
+    trace_id="Root=1-abcdef01-234567890abcdef01234567;Parent=1234;Sampled=0"
+    MOCK_NEXT_TRACE_ID="$trace_id"
+    MOCK_XRAY_DAEMON_ADDRESS="127.0.0.1:2000"
+    run_bootstrap "function.handler"
+    wait_for_file "$response_file"
+    if grep -F "X-Ray segment:" "$log_file" >/dev/null 2>&1; then
+      printf '%s\n' "Expected X-Ray segment log to be skipped for unsampled trace" >&2
+      exit 1
+    fi
     ;;
   xray-segment-log-disabled)
     cat <<'HANDLER' > "$workdir/function.sh"

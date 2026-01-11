@@ -49,8 +49,18 @@ Describe 'unit tests'
     The status should be success
   End
 
+  It 'propagates _X_AMZN_TRACE_ID per invocation'
+    When run ./scripts/test-unit.sh xray-trace-env
+    The status should be success
+  End
+
   It 'logs X-Ray segment when sampled'
     When run ./scripts/test-unit.sh xray-segment-log
+    The status should be success
+  End
+
+  It 'skips X-Ray segment log when unsampled'
+    When run ./scripts/test-unit.sh xray-segment-unsampled
     The status should be success
   End
 
