@@ -182,7 +182,9 @@ if [ -n "${MOCK_RESPONSE_MODE_FILE:-}" ] && [ -n "$response_mode" ]; then
 fi
 
 if [ -n "$target_file" ] && [ -n "$data_file" ]; then
-  cat "$data_file" > "$target_file"
+  tmp_file=$(mktemp "${target_file}.tmp.XXXXXX")
+  cat "$data_file" > "$tmp_file"
+  mv "$tmp_file" "$target_file"
 fi
 
 if [ -n "$write_out" ]; then
