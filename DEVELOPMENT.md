@@ -95,6 +95,7 @@ Override any of the defaults by exporting:
 - `LSR_SAR_VERSION_DEV` (dev SAR version, default `0.0.0`)
 - `LSR_SAR_APP_NAME_ARM64` / `LSR_SAR_APP_NAME_AMD64` (override derived names)
 - `LSR_LAYER_NAME_ARM64` / `LSR_LAYER_NAME_AMD64` (override layer names)
+- `LSR_SAR_PUBLIC` (set to `0` to keep SAR apps private; defaults to `1` in prod, `0` in dev)
 - `LSR_S3_PREFIX`
 - `S3_BUCKET` (optional; overrides the bucket used for packaging)
 
@@ -207,6 +208,7 @@ make publish-all
 ```
 
 `make publish-wrapper` and `make publish-all` generate the wrapper template with the correct ApplicationIds automatically.
+By default, prod publishing makes the SAR applications public (per-arch + wrapper). Set `LSR_SAR_PUBLIC=0` to keep them private.
 
 To publish the wrapper application, run:
 
@@ -365,6 +367,7 @@ Replace `<ACCOUNT_ID>`, `<REGION>`, and `<S3_BUCKET>` to match your setup.
         "serverlessrepo:CreateApplication",
         "serverlessrepo:GetApplication",
         "serverlessrepo:UpdateApplication",
+        "serverlessrepo:PutApplicationPolicy",
         "serverlessrepo:CreateApplicationVersion",
         "serverlessrepo:CreateCloudFormationTemplate",
         "serverlessrepo:GetCloudFormationTemplate",

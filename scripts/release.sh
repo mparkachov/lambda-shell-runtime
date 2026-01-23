@@ -94,6 +94,28 @@ sar_app_id() {
   return 1
 }
 
+is_true() {
+  case "${1:-}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_public_policy() {
+  app_id=$1
+  app_name=$2
+  if ! is_true "$LSR_SAR_PUBLIC"; then
+    return 0
+  fi
+  if [ -z "$app_id" ] || [ "$app_id" = "None" ] || [ "$app_id" = "null" ]; then
+    printf '%s\n' "Unable to resolve SAR application ID for $app_name." >&2
+    return 1
+  fi
+  aws serverlessrepo put-application-policy \
+    --application-id "$app_id" \
+    --statements Principals='*',Actions=Deploy >/dev/null
+}
+
 tag_exists=false
 if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
   tag_exists=true
@@ -169,6 +191,11 @@ publish_template() {
 publish_template "arm64" "$template_arm64"
 publish_template "amd64" "$template_amd64"
 publish_template "wrapper" "$template_wrapper_out"
+
+ensure_public_policy "$arm64_id" "$LSR_SAR_APP_NAME_ARM64"
+ensure_public_policy "$amd64_id" "$LSR_SAR_APP_NAME_AMD64"
+wrapper_id=$(sar_app_id "$wrapper_app_name" || true)
+ensure_public_policy "$wrapper_id" "$wrapper_app_name"
 
 if [ "$tag_exists" = "true" ]; then
   printf '%s\n' "Tag $version already exists; skipping tag and GitHub release."

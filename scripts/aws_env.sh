@@ -14,6 +14,15 @@ case "$LSR_ENV" in
     ;;
 esac
 
+if [ -z "${LSR_SAR_PUBLIC:-}" ]; then
+  if [ "$LSR_ENV" = "prod" ]; then
+    LSR_SAR_PUBLIC=1
+  else
+    LSR_SAR_PUBLIC=0
+  fi
+fi
+export LSR_SAR_PUBLIC
+
 LSR_SAR_APP_BASE_PROD=${LSR_SAR_APP_BASE:-${LSR_SAR_APP_NAME:-lambda-shell-runtime}}
 LSR_SAR_APP_BASE_DEV=${LSR_SAR_APP_BASE_DEV:-lambda-shell-runtime-dev}
 

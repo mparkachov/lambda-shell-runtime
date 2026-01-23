@@ -15,6 +15,37 @@ require_cmd() {
 require_cmd sam
 require_cmd make
 
+is_true() {
+  case "${1:-}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+sar_app_id() {
+  name=$1
+  attempts=${APP_LOOKUP_ATTEMPTS:-6}
+  delay=${APP_LOOKUP_DELAY:-3}
+  max_items=${APP_LOOKUP_MAX_ITEMS:-1000}
+
+  i=1
+  while [ "$i" -le "$attempts" ]; do
+    app_id=$(aws serverlessrepo list-applications \
+      --max-items "$max_items" \
+      --query "Applications[?Name=='$name'].ApplicationId | [0]" \
+      --output text 2>/dev/null || true)
+    if [ -n "$app_id" ] && [ "$app_id" != "None" ] && [ "$app_id" != "null" ]; then
+      printf '%s\n' "$app_id"
+      return 0
+    fi
+    if [ "$i" -lt "$attempts" ]; then
+      sleep "$delay"
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 arch=${ARCH:-${1:-}}
 if [ -z "$arch" ] && [ "$LSR_ENV" = "dev" ]; then
   arch=amd64
@@ -39,6 +70,17 @@ esac
 if [ "$LSR_ENV" = "dev" ] && [ "$arch" = "wrapper" ]; then
   printf '%s\n' "Wrapper publishing is not supported for ENV=dev." >&2
   exit 1
+fi
+
+needs_aws=false
+if [ "$arch" = "wrapper" ]; then
+  needs_aws=true
+fi
+if [ "$LSR_ENV" = "prod" ] && is_true "$LSR_SAR_PUBLIC"; then
+  needs_aws=true
+fi
+if [ "$needs_aws" = "true" ]; then
+  require_cmd aws
 fi
 
 template_src="$root/template/template-$arch.yaml"
@@ -110,31 +152,6 @@ if [ "$arch" != "wrapper" ]; then
     exit 1
   fi
 else
-  require_cmd aws
-  sar_app_id() {
-    name=$1
-    attempts=${APP_LOOKUP_ATTEMPTS:-6}
-    delay=${APP_LOOKUP_DELAY:-3}
-    max_items=${APP_LOOKUP_MAX_ITEMS:-1000}
-
-    i=1
-    while [ "$i" -le "$attempts" ]; do
-      app_id=$(aws serverlessrepo list-applications \
-        --max-items "$max_items" \
-        --query "Applications[?Name=='$name'].ApplicationId | [0]" \
-        --output text 2>/dev/null || true)
-      if [ -n "$app_id" ] && [ "$app_id" != "None" ] && [ "$app_id" != "null" ]; then
-        printf '%s\n' "$app_id"
-        return 0
-      fi
-      if [ "$i" -lt "$attempts" ]; then
-        sleep "$delay"
-      fi
-      i=$((i + 1))
-    done
-    return 1
-  }
-
   arm64_id=$(sar_app_id "$LSR_SAR_APP_NAME_ARM64")
   amd64_id=$(sar_app_id "$LSR_SAR_APP_NAME_AMD64")
   if [ -z "$arm64_id" ] || [ "$arm64_id" = "None" ] || [ "$arm64_id" = "null" ]; then
@@ -170,3 +187,19 @@ sam package \
   --output-template-file "$packaged_path"
 
 sam publish --template "$packaged_path"
+
+if [ "$LSR_ENV" = "prod" ] && is_true "$LSR_SAR_PUBLIC"; then
+  case "$arch" in
+    arm64) app_name=$LSR_SAR_APP_NAME_ARM64 ;;
+    amd64) app_name=$LSR_SAR_APP_NAME_AMD64 ;;
+    wrapper) app_name=$LSR_SAR_APP_NAME_WRAPPER ;;
+  esac
+  app_id=$(sar_app_id "$app_name" || true)
+  if [ -z "$app_id" ] || [ "$app_id" = "None" ] || [ "$app_id" = "null" ]; then
+    printf '%s\n' "Unable to resolve SAR application ID for $app_name." >&2
+    exit 1
+  fi
+  aws serverlessrepo put-application-policy \
+    --application-id "$app_id" \
+    --statements Principals='*',Actions=Deploy >/dev/null
+fi
