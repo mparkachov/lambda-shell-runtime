@@ -8,6 +8,7 @@ Metadata:
     Description: Minimal POSIX shell custom runtime layer for provided.al2023 (arm64, x86_64) including AWS CLI v2 and jq.
     Author: Maxim Parkachov
     HomePageUrl: https://github.com/mparkachov/lambda-shell-runtime
+    SourceCodeUrl: https://github.com/mparkachov/lambda-shell-runtime
     SpdxLicenseId: Apache-2.0
     LicenseUrl: LICENSE
     ReadmeUrl: SAR_README.md
