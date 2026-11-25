@@ -11,6 +11,12 @@
 - Use only AWS-defined environment variables and contracts
 - Keep the runtime explicit, minimal, and easy to audit
 
+## AWS-managed operating system
+
+Unlike container-based and customer-managed Lambda runtimes, lambda-shell-runtime builds on the AWS-managed `provided.al2023` runtime. AWS remains responsible for operating system security patches and maintenance.
+
+The project maintains only the minimal shell runtime adapter, AWS CLI v2 and jq. Releases follow AWS CLI versioning and are published automatically, minimizing maintenance overhead for both publishers and consumers.
+
 ## Repository layout
 
 - `runtime/bootstrap`: runtime entrypoint
